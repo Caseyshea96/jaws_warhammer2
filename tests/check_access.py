@@ -19,4 +19,4 @@ for context in ('frontend', 'campaign', 'battle'):
 assert not any('HIDDEN ENEMY' in r['text'] or 'OTHER PLAYER' in r['text'] for r in records)
 fixtures = root / 'tests/fixtures/access-events.jsonl'
 fixtures.write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in records))
-print(f'PASS: {len(records)} records; UI navigation, confirmation, stale/disabled controls, turn checks, local-army selection, fog of war, file failures')
+print(f'PASS: {len(records)} records; UI navigation, confirmation, opaque/replaced/missing identity, UI lifecycle, stale/disabled controls, frontend action scope, turn checks, local-army selection, fog of war, file failures')

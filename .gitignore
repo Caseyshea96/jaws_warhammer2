@@ -9,3 +9,9 @@ captures/
 **/bin/
 **/obj/
 __pycache__/
+
+# Compiled Lua and local agent configuration
+luac.out
+*.luac
+.agents/
+.codex/

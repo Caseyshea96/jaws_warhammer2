@@ -1,4 +1,4 @@
-WARHAMMER II + JAWS CO-OP PILOT 0.2.4
+WARHAMMER II + JAWS CO-OP PILOT 0.2.5-dev
 
 An experimental integration attempt for a Windows JAWS player and a friend
 using the Windows game on Windows or Proton. This is NOT a finished
@@ -14,7 +14,7 @@ failures. This addresses a suspected native binding stack issue; live menu
 reading is not yet confirmed.
 It captures protected-call results explicitly and rejects invalid UI
 return types, fixing the observed child-count scan failure. Both the game
-startup speech and companion title identify version 0.2.4. It also fixes
+startup speech and companion title identify version 0.2.5-dev. It also fixes
 the unsupported disabled-state getter and filters internal
 menu containers. Main-menu activation still needs your live test.
 
@@ -71,7 +71,7 @@ UI inputs; the game retains its rules and decides whether they take effect.
 "Input sent" does NOT mean the action succeeded. Read the resulting UI.
 F-key events may also reach existing game/mod bindings; test for conflicts.
 
-COMPANION SHORTCUTS (CTRL+ALT)
+COMPANION SHORTCUTS (CTRL+ALT, GAME FOREGROUND ONLY)
 R                  Repeat speech
 S                  Stop speech
 M                  Mute / unmute pilot speech
@@ -81,6 +81,11 @@ F                  Toggle 5-pixel fine movement / 40-pixel coarse movement
 C                  Center pointer in game window
 Space              Left click after releasing modifiers
 Enter              Right click after releasing modifiers
+
+Shortcut registration follows game focus on a 100ms timer; releases may lag
+a focus change by one poll. Queued shortcuts are checked again before dispatch.
+Use the companion buttons outside the game. JAWS conflicts inside the game
+still require live testing; pass -NoHotkeys to disable companion shortcuts.
 
 Keyboard mouse actions operate only while Warhammer2 is the foreground
 process and the cursor is inside its client area. Release Ctrl/Alt within

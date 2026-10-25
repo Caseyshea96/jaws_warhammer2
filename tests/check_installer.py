@@ -15,9 +15,9 @@ import zipfile
 root = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='installer-test-', dir=root / 'local') as tmp:
     folder = Path(tmp)
-    with zipfile.ZipFile(root / 'artifacts/jaws-coop-pilot-windows-0.2.4.zip') as z:
+    with zipfile.ZipFile(root / ('artifacts/jaws-coop-pilot-windows-' + os.environ.get('PILOT_TEST_VERSION', '0.2.5-dev') + '.zip')) as z:
         z.extractall(folder / 'package')
-    package = folder / 'package/jaws-coop-pilot-windows-0.2.4'
+    package = folder / ('package/jaws-coop-pilot-windows-' + os.environ.get('PILOT_TEST_VERSION', '0.2.5-dev'))
     manifest = json.loads((package / 'manifest.json').read_text())
     game = folder / 'Steam Library/steamapps/common/Total War WARHAMMER II'
     (game / 'data').mkdir(parents=True)

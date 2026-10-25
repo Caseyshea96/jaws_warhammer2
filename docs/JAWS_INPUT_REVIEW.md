@@ -75,3 +75,17 @@ Pass Key Through (Insert+3 on desktop layout, Caps Lock+3 on laptop layout) is a
 - Microsoft RegisterHotKey: https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey
 - Microsoft mouse_event: https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-mouse_event
 - Tolk project's COM interface declaration (implementation source, not a JAWS 2026 vendor guarantee): https://github.com/dkager/tolk/blob/master/src/fsapi.h
+
+## Development follow-up: identity and lifecycle
+
+The unreleased playable source now accepts opaque userdata addresses, rejects missing identity during current-target validation, gates input on core UI readiness, and clears selection/pending actions/panels on core UI creation and destruction callbacks. Frontend Game actions now contains only Escape/back. The fixture now supplies opaque addresses and tests address replacement with unchanged labels, unavailable identity, and UI destruction between confirmation presses. These changes pass Lua fixtures but do not establish native address stability or frontend modal correctness. The separate 0.3.0 diagnostic ZIP is unchanged; use its raw log to resolve native-reading behavior before packaging another playable release.
+
+## Development follow-up: scoped companion hotkeys
+
+The 0.2.5-dev source now configures keys without reserving them, registers on game-foreground entry, and unregisters on exit. Native message dispatch also rechecks foreground and registration ownership. The existing 100ms polling timer introduces a short release delay; Windows/JAWS hook interactions are not verified. Failed registration is reported once per transition and retried on re-entry; failed release is retried while inactive, with repeated identical speech suppressed. Dispose releases keys and destroys the window. NoHotkeys diagnostic mode still reserves none. In-game JAWS chord conflicts and configurable remapping remain outstanding.
+
+HotkeyPolicy.cs isolates registration lifetime behind native delegates. tests/hotkey_policy_tests.ps1 exercises focus transitions, registration conflict, failed release and retry, stale dispatch, polling idempotence and disposal. Native.cs plus the policy compile against .NET Framework 4.8/C#5. The 0.2.5-dev ZIP passes installation/rerun/removal checks including the added policy file. This package is for development validation; keep testing the unchanged 0.3.0-diagnostic package to isolate the current menu failure.
+
+## Development follow-up: same-poll speech preservation
+
+The development mod labels navigation as focus and dispatch acknowledgements as result. The companion preserves non-hover messages in a bounded batch and collapses only consecutive focus updates. Errors, confirmations (speech), and results no longer silently disappear merely because a later record arrived in the same poll. Overflow is spoken and logged; original records remain in the rotating bridge file. Protocol, ordering and bound tests pass. Speech completion across polling intervals and simultaneous-source arbitration remain unresolved, and native JAWS speech timing needs live testing. Use matching development mod/companion versions because earlier parsers do not accept focus/result kinds. The existing diagnostic ZIP remains unchanged.

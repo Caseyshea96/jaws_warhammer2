@@ -1,5 +1,11 @@
 # Warhammer II → JAWS: research and implementation plan
 
+Unreleased source fixes: opaque control identity validation, UI lifecycle invalidation/readiness checks, and frontend-only Escape action are implemented with regression tests. Native Windows menu reading remains unresolved; the diagnostic package is unchanged.
+
+Diagnostic implementation: `diagnostics/jaws_access.lua` and the `0.3.0-diagnostic` ZIP now provide bounded raw native-read comparisons with lifecycle checks and no game actions. The companion launcher disables global hotkeys. Local tests pass; the Windows diagnostic log remains required before menu compatibility can be established.
+
+Latest research: [WH2 native UI findings and diagnostic specification](docs/ENGINE_RESEARCH.md). CA itself uses protected UI calls; root lifecycle and raw per-method reads must be checked before attributing failure to pcall or tail calls.
+
 Review gate: [JAWS 2026 and game input audit](docs/JAWS_INPUT_REVIEW.md) identifies unresolved root traversal, global hotkey conflicts, opaque-address validation and frontend modal gaps. Pause speculative compatibility releases until the controlled native-read diagnostic establishes the failing boundary. 0.2.4 remains unverified in-game.
 
 Updated 2026-10-25: the integrated Windows pilot 0.2.4 is implemented and packaged, with Lua, transport, pack and installer fixture tests. Live Windows/JAWS and co-op tests remain outstanding. See [pilot release coverage and recipient instructions](docs/PILOT_RELEASE.md). The roadmap below continues beyond the pilot; it is not a claim that every screen or spatial control is finished.
@@ -99,3 +105,7 @@ LAN and online modes can share this accessibility design. [Steam lists LAN suppo
 ## Next information needed
 
 After installation: game path and build; friend's availability for Windows/JAWS tests; required speech/braille support and preferred keyboard scheme. Both campaign and battles are required. Development can begin with the speech and transport probes before installation. A usable release estimate should wait until both keyboard-operable slices and multiplayer tests pass.
+
+### Development validation update
+
+The 0.2.5-dev build includes lifecycle/identity fixes and foreground-scoped companion registration. Lua fixtures, hotkey-policy tests, .NET Framework compilation, transport/parser tests and packaged installer/removal fixtures pass. Native Windows focus timing and JAWS conflicts remain unverified. Do not replace the pending 0.3.0-diagnostic experiment with this development build; native menu-reading evidence is still required.

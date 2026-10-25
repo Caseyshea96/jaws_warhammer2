@@ -4,7 +4,7 @@ function Get-Hash([string]$Path) { return (Get-FileHash -LiteralPath $Path -Algo
 try {
     $manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'manifest.json') -Raw | ConvertFrom-Json
     # Only fixed local filenames from our package can be installed.
-    $expectedNames = @('jaws_access.pack','Companion.ps1','Bridge.cs','Native.cs','Protocol.ps1','Uninstall.ps1','README.txt','Start Pilot.cmd','Uninstall.cmd')
+    $expectedNames = @('jaws_access.pack','Companion.ps1','Bridge.cs','Native.cs','HotkeyPolicy.cs','Protocol.ps1','Uninstall.ps1','README.txt','Start Pilot.cmd','Uninstall.cmd')
     foreach ($name in $expectedNames) {
         $expected = $manifest.files.$name
         if (-not $expected -or (Get-Hash (Join-Path $PSScriptRoot $name)) -ne $expected) { throw "Package verification failed: $name" }

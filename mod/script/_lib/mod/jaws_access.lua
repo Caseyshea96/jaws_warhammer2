@@ -35,7 +35,11 @@ local function call(obj, method, fallback, argument)
     local value
     local ok, err = pcall(function() value = readers[method](obj, argument) end)
     local valid = ok and value ~= nil
-    if valid and type(fallback) == "number" then
+    if valid and method == "Address" then
+        local kind = type(value)
+        valid = kind == "userdata" or (kind == "string" and value ~= "")
+            or (kind == "number" and value > 0 and value < math.huge)
+    elseif valid and type(fallback) == "number" then
         valid = type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
     elseif valid and type(fallback) == "boolean" then valid = type(value) == "boolean"
     elseif valid then valid = type(value) == "string" or type(value) == "number" end
@@ -103,7 +107,12 @@ local function say(text, kind)
     if kind ~= "repeat" then last_message = text end
     write(kind or "speech", text)
 end
-local function root() return core:get_ui_root() end
+local function root()
+    if not core:is_ui_created() then error("The game UI is not ready. Try again after the menu appears") end
+    local node = core:get_ui_root()
+    if not node then error("No game UI root is available") end
+    return node
+end
 local function resolve(path)
     local node = root()
     for _, step in ipairs(path) do
@@ -212,6 +221,7 @@ local function shortcuts()
         {"Cancel order or halt selected units", "current_selection_order_cancel"},
         {"Escape or close current dialog", "escape_menu"}
     }
+    if mode == "frontend" then list = {{"Escape or close current dialog", "escape_menu"}} end
     local extra = {}
     if mode == "campaign" then
         extra = {{"Province overview", "show_overview"}, {"Garrison", "show_garrison"},
@@ -276,7 +286,7 @@ end
 local function speak_entry(entry)
     local suffix = entry.disabled and ", disabled" or ""
     if entry.state and entry.state ~= "" then suffix = suffix .. ", " .. entry.state end
-    say(names[category] .. ", " .. index .. " of " .. #entries .. ": " .. entry.label .. suffix)
+    say(names[category] .. ", " .. index .. " of " .. #entries .. ": " .. entry.label .. suffix, "focus")
 end
 local function navigate(delta)
     local key = entries[index] and entries[index].key
@@ -300,6 +310,7 @@ local function current()
         end
         local node = resolve(entry.path)
         local label, tip, state, disabled = describe(node)
+        if entry.address == "" then error("Control identity unavailable. Activation is blocked until it can be verified") end
         if label ~= entry.label or tip ~= entry.tip or state ~= entry.state or disabled ~= entry.disabled
             or tostring(call(node, "Address", "")) ~= entry.address then
             pending = nil; error("Item changed. Browse again before using it")
@@ -325,7 +336,7 @@ local function activate()
         effect.trigger_shortcut(entry.key)
     else node:SimulateLClick() end
     entries, index = {}, 0
-    say("Input sent: " .. entry.label .. ". Read the panel or summary to verify the result.")
+    say("Input sent: " .. entry.label .. ". Read the panel or summary to verify the result.", "result")
 end
 local function summary()
     if mode == "campaign" then
@@ -385,9 +396,22 @@ local function protect(fn)
         say("Pilot could not complete that request: " .. tostring(err), "error")
     end
 end
+core:add_ui_created_callback(function()
+    panels = {}
+    reset("Game UI recreated. Browse again before activating a control.")
+end)
+core:add_ui_destroyed_callback(function()
+    panels = {}
+    reset("Game UI closed. Waiting for the next screen.")
+end)
 core:add_listener("jaws_access_shortcuts", "ShortcutTriggered", function(context)
     return actions[context.string] ~= nil
-end, function(context) protect(actions[context.string]) end, true)
+end, function(context)
+    protect(function()
+        if not core:is_ui_created() then error("The game UI is not ready. Try again after the menu appears") end
+        actions[context.string]()
+    end)
+end, true)
 core:add_listener("jaws_access_hover", "ComponentMouseOn", true, function(context)
     pcall(function()
         local node = UIComponent(context.component)
@@ -420,4 +444,4 @@ if mode == "campaign" then
         end)
     end, true)
 end
-say("JAWS co-op pilot 0.2.4 loaded in " .. mode .. ". F2 next, F3 previous, F4 activates with confirmation. Control F2 changes category.", "hello")
+say("JAWS co-op pilot 0.2.5-dev loaded in " .. mode .. ". F2 next, F3 previous, F4 activates with confirmation. Control F2 changes category.", "hello")

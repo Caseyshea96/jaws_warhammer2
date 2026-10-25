@@ -15,7 +15,7 @@ try {
             }
             Remove-Item -LiteralPath $target
         }
-        foreach ($name in @('Companion.ps1','Bridge.cs','Native.cs','Protocol.ps1','Uninstall.ps1','README.txt','Start Pilot.cmd','Uninstall.cmd')) {
+        foreach ($name in @('Companion.ps1','Bridge.cs','Native.cs','HotkeyPolicy.cs','Protocol.ps1','Uninstall.ps1','README.txt','Start Pilot.cmd','Uninstall.cmd')) {
             $path = Join-Path $app $name
             if ((Test-Path -LiteralPath $path) -and (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -eq $manifest.files.$name) {
                 Remove-Item -LiteralPath $path

@@ -16,6 +16,8 @@ local keys = {
 }
 local function node(id, text, interactive, disabled, visible, children)
     local n = {id=id, text=text, interactive=interactive, disabled=disabled, visible=visible, children=children or {}, clicks=0}
+    n.address = newproxy()
+    function n:Address() return self.address end
     function n:Id() return self.id end
     function n:GetStateText() return self.text end
     function n:GetTooltipText() return self.tip or "Costs 100 gold" end
@@ -29,7 +31,8 @@ local function node(id, text, interactive, disabled, visible, children)
 end
 for _, mode in ipairs({"frontend", "campaign", "battle"}) do
     local listeners, commands = {}, {}
-    local active_turn = true
+    local active_turn, ready = true, true
+    local on_created, on_destroyed
     local purchase = node("build", 'Build "café" [[col:red]]\n', true, false, true)
     local disabled = node("disabled", "Unavailable", true, true, true)
     local hidden = node("hidden", "SECRET", true, false, false)
@@ -44,7 +47,10 @@ for _, mode in ipairs({"frontend", "campaign", "battle"}) do
     core = {
         is_campaign=function() return mode=="campaign" end,
         is_battle=function() return mode=="battle" end,
-        get_ui_root=function() return ui end,
+        get_ui_root=function() assert(ready, "root read while UI unavailable"); return ui end,
+        is_ui_created=function() return ready end,
+        add_ui_created_callback=function(_,fn) on_created=fn end,
+        add_ui_destroyed_callback=function(_,fn) on_destroyed=fn end,
         add_listener=function(self,name,event,cond,cb,persist) listeners[name]={event,cond,cb,persist} end
     }
     UIComponent=function(x) assert(x,"missing UI pointer"); return x end
@@ -84,6 +90,22 @@ for _, mode in ipairs({"frontend", "campaign", "battle"}) do
     end
     local function key(k) fire("ShortcutTriggered",{string=k}) end
     dofile("mod/script/_lib/mod/jaws_access.lua")
+    -- UI recreation must invalidate selection and pending confirmation.
+    key("script_F2"); key("script_F4")
+    ready=false; on_destroyed(); key("script_F4")
+    assert(purchase.clicks==0 and records[#records]:find("UI is not ready"))
+    ready=true; on_created(); key("script_F4")
+    assert(purchase.clicks==0)
+    -- Same path/text/state, but a replacement native address must not activate.
+    key("script_F2"); key("script_F4")
+    purchase.address=newproxy()
+    key("script_F4"); assert(purchase.clicks==0 and records[#records]:find("Item changed"))
+    -- Missing identity cannot silently compare as an empty string.
+    purchase.address=nil
+    key("script_F2"); key("script_F4"); key("script_F4")
+    assert(purchase.clicks==0)
+    purchase.address=newproxy()
+    on_created()
     local count_method = ui.ChildCount
     ui.ChildCount = function() return function() end end
     key("script_F2")
@@ -116,7 +138,7 @@ for _, mode in ipairs({"frontend", "campaign", "battle"}) do
     assert(records[#records]:find('Readable text'))
     key("script_ctrl_F2") -- shortcuts
     key("script_F2"); key("script_F4"); key("script_F4")
-    assert(commands[#commands]=="select_next")
+    assert(commands[#commands]==(mode=="frontend" and "escape_menu" or "select_next"))
     if mode=="campaign" then
         key("script_F3") -- last action when index reset: End turn
         active_turn=false

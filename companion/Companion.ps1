@@ -1,4 +1,4 @@
-param([string]$GamePath, [switch]$Launch, [switch]$Console, [string]$ReplayFile)
+param([string]$GamePath, [switch]$Launch, [switch]$Console, [string]$ReplayFile, [switch]$NoHotkeys)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Protocol.ps1')
 Add-Type -Path (Join-Path $PSScriptRoot 'Bridge.cs')
@@ -27,6 +27,7 @@ catch { Write-Host 'The companion is already running. Close its window before st
 try {
     $script:Jaws = $null; $script:Muted = $false; $script:HoverEnabled = $false
     $script:Last = 'JAWS pilot is ready.'; $script:Step = 40; $script:LastHover = ''
+    $script:LastHotkeyError = ''
     $script:PendingClick = $null; $script:ClickDeadline = [DateTime]::MinValue
     $script:StatusText = ''; $script:StatusControl = $null
     $script:LastError = ''; $script:LastErrorTime = [DateTime]::MinValue
@@ -87,6 +88,15 @@ try {
     )
     $states = @((New-ProtocolState), (New-ProtocolState))
     function Read-Bridge {
+        if (-not $Console -and $keys) {
+            $failures = $keys.UpdateFocus(-not $NoHotkeys)
+            $failureKey = $failures -join ','
+            if ($failures.Count -and $failureKey -ne $script:LastHotkeyError) {
+                Log-Error ('Shortcut registration/release failed for IDs: ' + ($failures -join ','))
+                Speak 'Some companion shortcuts could not be registered or released. See the diagnostic log.' -Force
+            }
+            $script:LastHotkeyError = $failureKey
+        }
         if ($null -ne $script:PendingClick -and -not $Console) {
             if (-not [JawsPilot.Pointer]::GameFocused() -or [DateTime]::UtcNow -gt $script:ClickDeadline) {
                 $script:PendingClick = $null
@@ -97,20 +107,21 @@ try {
                 Speak ([JawsPilot.Pointer]::Click($right))
             }
         }
-        $latest = $null; $lastHoverRecord = $null
+        $latest = $null; $lastHoverRecord = $null; $batch = New-SpeechBatch
         for ($i = 0; $i -lt $tails.Count; $i++) {
             try {
                 foreach ($line in $tails[$i].Poll()) {
                     $r = Convert-BridgeRecord $line $states[$i]
                     if ($null -eq $r) { continue }
                     if ($r.kind -eq 'hover') { $lastHoverRecord = $r }
-                    else { $latest = $r }
+                    else { $latest = $r; Add-SpeechRecord $batch $r }
                 }
             } catch { Log-Error $_.Exception.Message }
         }
         if ($latest) {
             Set-Status ('Connected to game: ' + $latest.context + '. Last message: ' + $latest.text.Substring(0, [Math]::Min(100, $latest.text.Length)))
-            Speak $latest.text
+            if ($batch.Dropped) { Log-Error ("Speech batch overflow: " + $batch.Dropped + " records; original messages remain in the bridge file.") }
+            Speak (Get-SpeechBatchText $batch)
         } elseif ($lastHoverRecord -and $script:HoverEnabled -and $lastHoverRecord.text -ne $script:LastHover) {
             $script:LastHover = $lastHoverRecord.text
             Speak $lastHoverRecord.text
@@ -122,11 +133,11 @@ try {
     }
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
-    Add-Type -Path (Join-Path $PSScriptRoot 'Native.cs') -ReferencedAssemblies @('System.dll','System.Windows.Forms.dll')
+    Add-Type -Path @((Join-Path $PSScriptRoot 'Native.cs'), (Join-Path $PSScriptRoot 'HotkeyPolicy.cs')) -ReferencedAssemblies @('System.dll','System.Windows.Forms.dll')
     [void][JawsPilot.Pointer]::SetProcessDPIAware()
     [System.Windows.Forms.Application]::EnableVisualStyles()
     $form = New-Object Windows.Forms.Form
-    $form.Text = 'Warhammer II JAWS Pilot 0.2.4'
+    $form.Text = $(if ($NoHotkeys) { 'Warhammer II JAWS read-only diagnostic 0.3.0' } else { 'Warhammer II JAWS Pilot 0.2.5-dev' })
     $form.Width = 700; $form.Height = 490
     $form.StartPosition = 'CenterScreen'
     $panel = New-Object Windows.Forms.FlowLayoutPanel
@@ -134,6 +145,7 @@ try {
     $form.Controls.Add($panel)
     $label = New-Object Windows.Forms.Label
     $label.Text = 'Experimental co-op accessibility pilot. Enable jaws_access in the game Mod Manager. F2 next, F3 previous, F4 twice to activate. Ctrl+F2 changes category.'
+    if ($NoHotkeys) { $label.Text = 'Diagnostic mode: companion global hotkeys disabled. With the diagnostic pack, press F2 in the main menu, then hover a menu button. Send native-ui-diagnostic.log.' }
     $label.Width = 650; $label.Height = 60; $panel.Controls.Add($label)
     $script:StatusControl = New-Object Windows.Forms.TextBox
     $script:StatusControl.ReadOnly = $true; $script:StatusControl.Multiline = $true
@@ -158,9 +170,8 @@ try {
     $keys = [JawsPilot.Hotkeys]::new()
     # Ctrl+Alt: R/S/M/H, arrows, Enter, Space, C to center, F fine/coarse.
     $keyCodes = @(82,83,77,72,37,38,39,40,13,32,67,70)
-    $failedKeys = @()
-    for ($i = 0; $i -lt $keyCodes.Count; $i++) {
-        if (-not $keys.Register($i + 1, $keyCodes[$i])) { $failedKeys += $keyCodes[$i] }
+    for ($i = 0; -not $NoHotkeys -and $i -lt $keyCodes.Count; $i++) {
+        $keys.Configure($i + 1, $keyCodes[$i])
     }
     $keys.Add_Pressed({ param($sender, $eventArgs)
         switch ($eventArgs.Id) {
@@ -183,7 +194,6 @@ try {
     $timer.Add_Tick({ Read-Bridge })
     $form.Add_Shown({
         Test-Speech
-        if ($failedKeys.Count) { Speak 'Some companion shortcuts are unavailable. Check for conflicts with JAWS or other programs.' -Force; Log-Error ('Hotkey registration failures: ' + ($failedKeys -join ',')) }
         $timer.Start()
         if ($Launch) { Launch-Game }
     })

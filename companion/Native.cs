@@ -9,13 +9,20 @@ namespace JawsPilot {
         [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr h, int id, uint mods, uint key);
         [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr h, int id);
         public event EventHandler<HotkeyArgs> Pressed;
-        public Hotkeys() { CreateHandle(new CreateParams()); }
-        public bool Register(int id, int key) { return RegisterHotKey(Handle, id, 0x4003, (uint)key); } // Ctrl+Alt, no repeat
+        private readonly HotkeyPolicy policy;
+        public Hotkeys() {
+            CreateHandle(new CreateParams());
+            policy = new HotkeyPolicy(
+                (id,key) => RegisterHotKey(Handle,id,0x4003,(uint)key),
+                id => UnregisterHotKey(Handle,id));
+        }
+        public void Configure(int id, int key) { policy.Add(id,key); }
+        public int[] UpdateFocus(bool enabled) { return policy.SetActive(enabled && Pointer.GameFocused()); }
         protected override void WndProc(ref Message m) {
-            if (m.Msg == 0x0312 && Pressed != null) Pressed(this, new HotkeyArgs(m.WParam.ToInt32()));
+            if (m.Msg == 0x0312 && policy != null && Pointer.GameFocused() && policy.CanDispatch(m.WParam.ToInt32()) && Pressed != null) Pressed(this, new HotkeyArgs(m.WParam.ToInt32()));
             base.WndProc(ref m);
         }
-        public void Dispose() { for (int i = 1; i <= 20; i++) UnregisterHotKey(Handle, i); DestroyHandle(); }
+        public void Dispose() { policy.Dispose(); DestroyHandle(); }
     }
     public static class Pointer {
         [StructLayout(LayoutKind.Sequential)] private struct Rect { public int L, T, R, B; }

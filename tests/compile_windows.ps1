@@ -10,7 +10,7 @@ $refs = [Microsoft.CodeAnalysis.MetadataReference[]]@(
 )
 $parse = [Microsoft.CodeAnalysis.CSharp.CSharpParseOptions]::Default.WithLanguageVersion([Microsoft.CodeAnalysis.CSharp.LanguageVersion]::CSharp5)
 $trees = [Microsoft.CodeAnalysis.SyntaxTree[]]@(
-    foreach ($name in @('Bridge.cs','Native.cs')) {
+    foreach ($name in @('Bridge.cs','Native.cs','HotkeyPolicy.cs')) {
         [Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree]::ParseText([IO.File]::ReadAllText((Join-Path $root ('companion/' + $name))), $parse)
     }
 )
