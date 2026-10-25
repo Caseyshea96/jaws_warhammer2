@@ -1,0 +1,11 @@
+# Local installers and game-derived material
+*.exe
+*.part
+local/
+artifacts/
+captures/
+
+# Build outputs
+**/bin/
+**/obj/
+__pycache__/
