@@ -15,7 +15,7 @@ if (Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object
 $backup = Join-Path $repo ('work\preinstall-' + $Version + '-' + [guid]::NewGuid().ToString('N').Substring(0,8))
 [void][IO.Directory]::CreateDirectory($backup)
 Copy-Item -LiteralPath (Join-Path $base 'App') -Destination (Join-Path $backup 'App') -Recurse
-foreach ($name in @('receipt.json','bridge.jsonl','native-ui-graphics-preview.log','speech-trace.jsonl','native-ui-lord-discovery.jsonl')) {
+foreach ($name in @('receipt.json','bridge.jsonl','native-ui-graphics-preview.log','speech-trace.jsonl','native-ui-lord-discovery.jsonl','native-ui-campaign-discovery.jsonl')) {
     $path = Join-Path $base $name
     if (Test-Path -LiteralPath $path) { Copy-Item -LiteralPath $path -Destination (Join-Path $backup $name) }
 }

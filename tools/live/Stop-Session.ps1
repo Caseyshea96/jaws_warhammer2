@@ -17,9 +17,25 @@ do {
 } while ([datetime]::UtcNow -lt $until)
 if ($state) { $state | Set-Content (Join-Path $Evidence 'disabled-status.tsv') -Encoding UTF8 }
 "NATIVE_DISABLED_ACK=$acknowledged"
+$campaignRecord = Join-Path $Evidence 'owned-campaign-flag.json'
+if (Test-Path -LiteralPath $campaignRecord) {
+    $campaignOwner = Get-Content -LiteralPath $campaignRecord -Raw | ConvertFrom-Json
+    $campaignFlag = Join-Path $base 'campaign-discovery.tsv'
+    if ((Test-Path -LiteralPath $campaignFlag) -and [IO.File]::ReadAllText($campaignFlag) -ceq $campaignOwner.raw) {
+        Remove-Item -LiteralPath $campaignFlag
+        'Owned campaign discovery flag removed.'
+        $campaignRequest = Join-Path $base 'campaign-discovery-request.tsv'
+        if ((Test-Path -LiteralPath $campaignRequest) -and
+            [IO.File]::ReadAllText($campaignRequest).StartsWith(("WH2CAMCAP1`t" + $campaignOwner.owner + "`t"),[StringComparison]::Ordinal)) {
+            Copy-Item -LiteralPath $campaignRequest -Destination $Evidence -Force
+            Remove-Item -LiteralPath $campaignRequest
+            'Owned read-only capture request removed.'
+        }
+    }
+}
 $probe = Join-Path $base 'string-find-probe.flag'
 if (Test-Path -LiteralPath $probe) { Remove-Item -LiteralPath $probe }
-foreach ($name in @('native-ui-graphics-preview.log','native-ui-lord-discovery.jsonl','bridge.jsonl','speech-trace.jsonl','receipt.json')) {
+foreach ($name in @('native-ui-graphics-preview.log','native-ui-lord-discovery.jsonl','native-ui-campaign-discovery.jsonl','campaign-discovery-status.json','bridge.jsonl','speech-trace.jsonl','receipt.json')) {
     $source = Join-Path $base $name
     if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination $Evidence -Force }
 }

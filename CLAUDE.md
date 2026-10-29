@@ -24,7 +24,9 @@ left intact. Paths like `work/live-0.6.17-lord-discovery` in the docs resolve he
 ## Current state — read before working
 
 - `docs/AUTOMATION_SESSION.md` — full session history and current stop point.
-- `docs/START_CAMPAIGN_0_6_28.md` — latest live result (confirmed Start Campaign).
+- `docs/CAMPAIGN_DISCOVERY_0_6_31.md` — owner-requested stop; candidate offline checks passed, live gates pending.
+- `docs/CAMPAIGN_DISCOVERY_0_6_30.md` — latest live result: partial campaign capture; 0.6.28 restored.
+- `docs/START_CAMPAIGN_0_6_28.md` — accepted confirmed Start Campaign checkpoint.
 - `docs/STANDARD_KEYS_0_6_27.md` — standard keys, single press.
 - `docs/SPEECH_CONVENTIONS_0_6_25.md` — NVDA-style speech.
 - `docs/LORD_SELECT_0_6_23_TEST.md` — lord selection.
@@ -32,8 +34,14 @@ left intact. Paths like `work/live-0.6.17-lord-discovery` in the docs resolve he
 - `docs/LORD_READER_0_6_18_TEST.md` — the confirmed `string.find` root cause.
 - `docs/FRONTEND_AUTOMATION.md` — the opt-in automation channel protocol.
 
-Accepted build: **0.6.28** (installed, in source and packaging). 0.6.27, 0.6.25,
-0.6.23, 0.6.21, 0.6.18 and 0.6.14 are previous good builds; 0.6.15–0.6.17 are failed candidates — never deploy them.
+Accepted installed build/rollback: **0.6.28**. Candidate **0.6.31** is in source
+and packaging, unpromoted. The owner requested a stopping point: 402 Lua scenarios
+and package/client checks pass, but no 0.6.31 live campaign has run. All owned
+test processes and flags are absent. Campaign scheduler availability, HUD gating
+and fresh capture still require live verification. See the 0.6.31 handoff.
+Previous 0.6.30 captured early with read/type issues; 0.6.15–0.6.17 are failed
+candidates. Preserve existing rollback archives and do not auto-start another
+campaign under the earlier consumed one-campaign approval.
 
 **Never call `string.find` in the runtime.** In WH2 the plain form returns nil
 for a match and then makes `string.sub` return numbers (confirmed live). Use

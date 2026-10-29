@@ -2,9 +2,17 @@
 
 Experimental Windows accessibility integration for Total War: WARHAMMER II.
 
-**Current verified status:** Native automation in 0.6.13 traverses all 22 main-menu controls with next/previous wrap, opens New Campaign, reads all 17 campaign-selection entries, and opens Select Lord through the guarded Continue button. The four-second confirmation clock has passed a live expiry check with no click. Start Campaign, gameplay and co-op remain blocked. The Graphics checkpoint is complete.
+**Accepted installed build: 0.6.28.** Native menu navigation, lord selection,
+NVDA-style speech, standard menu keys and confirmed Start Campaign have passed
+live testing. Campaign-map actions, gameplay and co-op remain unavailable.
 
-**Installed development preview:** 0.6.14 adds a tested read-only Lord setup information browser. Five bounded discovery pages captured 131 visible nodes and 34 text entries, including Tyrion, High Elves, Eataine, effects and difficulty information. All 34 entries and both wrap directions passed native testing; F4 on Start Campaign was blocked without a click. The original scanner/logger and four activation targets are preserved. All 332 Lua scenarios and package/installer checks pass. Test automation is disabled after use. Injected keys, intro skipping and automatic refresh after manual lord/settings changes remain unresolved. See the [automation session handoff](docs/AUTOMATION_SESSION.md). Prior previews and the read-only diagnostic remain rollback paths.
+**Current development candidate: 0.6.31.** Adds opt-in HUD readiness checks,
+native getter type diagnostics and a read-only capture refresh channel. All 402
+Lua scenarios and package/client checks pass; live campaign verification remains
+pending. The owner requested a stopping point. 0.6.28 remains installed and all
+test processes/flags are closed. See the [candidate checkpoint](docs/CAMPAIGN_DISCOVERY_0_6_31.md).
+It is not an accepted campaign HUD reader. Physical-key and full audible
+completion acceptance remain separate from native handler/API results.
 
 The older **0.2.5-dev** source includes control-identity checks, UI lifecycle invalidation, foreground-scoped hotkeys, and speech-batch preservation. It is not a verified playable release.
 

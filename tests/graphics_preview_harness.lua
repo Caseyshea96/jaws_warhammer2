@@ -1336,5 +1336,17 @@ click_hook=nil
 send_keys('companion-b',{'next'}); assert(spoken()=='Select Campaign. The Eye of the Vortex, radio button, checked, 1 of 17',spoken())
 assert(reader_state()[5]=='campaign_selection','Reader state follows the screen')
 single_press=false
+-- Observed retained DLC header hover is bounded to its exact native node.
+local dlc_header='tree.child2.child1.child0.child0.child3.child0'
+start(); nodes[dlc_header].data.CurrentState='hover'; choose_campaign(); key('script_F4'); key('script_F4')
+assert(#dispatches==1 and dispatches[1]==campaign_key,'Observed unrelated DLC header hover permits verified New Campaign')
+for _,state in ipairs({'inactive','pressed','selected'}) do
+    start(); nodes[dlc_header].data.CurrentState=state; choose_campaign(); key('script_F4'); key('script_F4')
+    no_dispatch('Unknown DLC header state remains blocked')
+end
+start(); nodes[dlc_header].data.CurrentState='hover'; nodes[dlc_header].data.Id='unknown_header'
+choose_campaign(); key('script_F4'); key('script_F4'); no_dispatch('DLC header identity remains exact')
+start(); nodes[dlc_header].data.CurrentState='hover'; choose_campaign(); key('script_F4')
+nodes[dlc_header].data.CurrentState='active'; key('script_F4'); no_dispatch('A changed raw header state cancels confirmation')
 io=real_io; os.time=real_time; os.date=real_date
 print('PASS: '..scenarios..' frontend scenarios; 86-node/22-control capture, cached wraparound, four allowlisted frontend targets and observed-result checks, confirmations, stale identities, native failures, template/panel changes, lifecycle, clocks and blocked game contexts')

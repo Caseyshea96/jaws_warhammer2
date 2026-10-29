@@ -17,6 +17,10 @@ try {
     if ($LASTEXITCODE) { throw 'Speech trace tests failed' }
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/automation_atomic_tests.ps1
     if ($LASTEXITCODE) { throw 'Windows PowerShell atomic request tests failed' }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/automation_atomic_tests.ps1 -ClientPath tools/live/Campaign-ReadOnly.ps1
+    if ($LASTEXITCODE) { throw 'Campaign read-only atomic request tests failed' }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/campaign_readonly_client_tests.ps1
+    if ($LASTEXITCODE) { throw 'Campaign read-only client checks failed' }
     $stage = Join-Path $root ('artifacts/graphics-preview-build-' + [guid]::NewGuid().ToString('N'))
     [void][IO.Directory]::CreateDirectory($stage)
     $pack = Join-Path $stage 'jaws_access.pack'
@@ -26,11 +30,15 @@ try {
     if ($LASTEXITCODE) { throw 'Pack type failed' }
     & $rpfm --game warhammer_2 pack add -p $pack -f ($source + ';script/_lib/mod/jaws_access.lua')
     if ($LASTEXITCODE) { throw 'Pack insertion failed' }
+    $campaignSource = Join-Path $root 'diagnostics/campaign_readonly.lua'
+    & $rpfm --game warhammer_2 pack add -p $pack -f ($campaignSource + ';script/_lib/mod/jaws_campaign_readonly.lua')
+    if ($LASTEXITCODE) { throw 'Campaign discovery insertion failed' }
     $roundtrip = Join-Path $stage 'roundtrip'
     & $rpfm --game warhammer_2 pack extract -p $pack -F ('/;' + $roundtrip)
     if ($LASTEXITCODE) { throw 'Pack extraction failed' }
     $extracted = Join-Path $roundtrip 'script/_lib/mod/jaws_access.lua'
     if ((Get-FileHash $source).Hash -ne (Get-FileHash $extracted).Hash) { throw 'Roundtrip differs from source' }
+    if ((Get-FileHash $campaignSource).Hash -ne (Get-FileHash (Join-Path $roundtrip 'script/_lib/mod/jaws_campaign_readonly.lua')).Hash) { throw 'Campaign discovery roundtrip differs from source' }
     $output = Join-Path $root 'artifacts/jaws_access_graphics_preview.pack'
     Copy-Item -LiteralPath $pack -Destination $output -Force
     ((Get-FileHash $output).Hash.ToLowerInvariant() + '  jaws_access_graphics_preview.pack') | Set-Content ($output + '.sha256') -Encoding Ascii

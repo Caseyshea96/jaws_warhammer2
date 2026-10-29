@@ -24,7 +24,11 @@ lua.lua_pcall.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_
 lua.lua_tolstring.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_size_t)]
 lua.lua_tolstring.restype = ctypes.c_char_p
 lua.lua_close.argtypes = [ctypes.c_void_p]
-for filename, execute in [('diagnostics/graphics_preview.lua', False), ('tests/graphics_preview_harness.lua', True)]:
+campaign_source = (root / 'diagnostics/campaign_readonly.lua').read_text(encoding='utf-8')
+for forbidden in ['string.find', ':find(', 'SimulateLClick', 'trigger_shortcut', 'reader-state.tsv', 'keys.tsv', 'cm:']:
+    assert forbidden not in campaign_source, f'Campaign discovery cannot use {forbidden}'
+for filename, execute in [('diagnostics/graphics_preview.lua', False), ('tests/graphics_preview_harness.lua', True),
+                          ('diagnostics/campaign_readonly.lua', False), ('tests/campaign_readonly_harness.lua', True)]:
     state = lua.luaL_newstate()
     assert state
     try:

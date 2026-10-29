@@ -1,5 +1,26 @@
 # Current progress
 
+## October 29 stopping point: 0.6.31 candidate ready for a live gate
+
+The owner requested a stopping point. HUD-readiness gating, typed read diagnostics
+and an explicit capture-only refresh channel are built in 0.6.31. All 402 Lua
+scenarios plus client/atomic/speech/pack/installer checks pass. No live campaign
+was run for this candidate. Accepted 0.6.28 is still installed with matching
+runtime hashes; test processes and markers are absent. See
+CAMPAIGN_DISCOVERY_0_6_31.md. Older checkpoints below are historical.
+
+
+## October 29 latest: first campaign diagnostic result
+
+One explicitly approved Tyrion campaign reached the actual map. The diagnostic
+ran during the opening sequence and captured six text entries, with 70 reported
+read/type issues; it did not read the later normal HUD. Campaign speech reached
+NVDA, but full browsing/wrap and physical keys remain unverified. No gameplay
+commands were sent. Accepted 0.6.28 is restored, all runtime hashes match, and
+owned test processes/flags are closed/removed. Candidate 0.6.30 remains unpromoted.
+See CAMPAIGN_DISCOVERY_0_6_30.md. Next: getter-type diagnostics and a bounded
+post-cinematic refresh/readiness gate. Older sections below are historical.
+
 ## October 29 final owner-requested checkpoint
 
 Stopped after 0.6.17 failed its live reader at the first race attribute, following

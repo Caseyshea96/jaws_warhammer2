@@ -1,5 +1,61 @@
 # Autonomous automation session — 2026-10-28
 
+## Owner-requested stopping point: 0.6.31 candidate (October 29)
+
+Stopped as requested after building the next diagnostic candidate. Accepted
+0.6.28 remains installed; all fourteen runtime hashes match. No game/companion
+or test lease/flag/request is active. No campaign was launched this continuation.
+
+0.6.31 waits for the visible HUD and cleared cinematic/loading UI, adds getter
+success/type/error diagnostics, scopes out world-space/visual layers, and adds
+a capture-only session/owner/generation/token/expiry-bound request endpoint.
+402 Lua scenarios, mock client, both atomic writers, speech, pack round-trip
+and shipped installer/preservation checks pass. Actual campaign real_timer
+availability, readiness behavior, native getter types, capture completion and
+explicit refresh remain unverified live. Do not promote the candidate or assume
+fixture success proves these gates. Details: CAMPAIGN_DISCOVERY_0_6_31.md.
+
+Candidate source/package are 0.6.31; the installation is 0.6.28. New helper:
+tools/live/Campaign-ReadOnly.ps1 (Status/Capture only; no game actions). Prior
+one-campaign approval was consumed by the completed 0.6.30 test, not reused.
+User requested a stopping point: no additional tests/starts or schedules planned.
+Await resume. Snapshot: work/checkpoint-0.6.31/final-checkpoint.json.
+
+The following checkpoints are historical.
+
+
+## Latest: approved 0.6.30 campaign test completed (October 29)
+
+The owner explicitly approved one Tyrion test campaign in this chat. Exactly
+one confirmed Start Campaign click was sent; the game reached the campaign
+flyover and then the normal map/HUD. The diagnostic captured 142 paths / 47
+visible nodes / six text entries, but reported 70 read/type issue increments.
+It ran during the cinematic, before the later HUD/help panel, so this is a
+partial capture, not a clean reader pass. Campaign text reached NVDA (three
+bridge records, two requests/returns, both code 0); physical keys and audible
+completion remain unverified. No campaign-map or gameplay commands were sent.
+See CAMPAIGN_DISCOVERY_0_6_30.md for evidence and interpretation.
+
+The earlier attempt stalled before any campaign start; it was closed, and a
+fresh session completed the single approved start. Do not claim two campaigns
+were started. Fresh Lord fields were verified natively before the start.
+
+Accepted 0.6.28 is restored and all installed runtime hashes match. The game
+and owned companion are closed, diagnostic flag/lease removed; save_games
+remained empty. Candidate source/package stay at 0.6.30, unpromoted. Evidence:
+work/live-0.6.30-campaign-approved-recovery (campaign-audit.json, catalog,
+start-campaign.json, logs, backups, final-checkpoint.json). A disabled ACK from
+the old frontend channel was not observed after campaign entry; marker removal
+and verified process termination establish cleanup.
+
+Next add getter type/error diagnostics and a post-cinematic readiness or
+explicit read-only recapture path, then test the normal HUD. Keep gameplay
+and campaign UI activation blocked. The one-campaign approval has been used;
+no additional campaign starts are authorized by that answer. Earlier approval
+review blocks were resolved by the owner's direct confirmation in this chat.
+
+The entries below are historical, including the old 0.6.14 stopping points.
+
 The owner authorized build/deploy/launch/test iteration and then prioritized
 automation over feature expansion. Use Steam's existing TW Mod Manager default,
 one valid accessibility pack and DirectX 11. Do not use Skip Launcher. Existing

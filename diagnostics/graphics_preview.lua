@@ -342,7 +342,7 @@ for _, base in ipairs(bases) do
     local path = base .. 'native-ui-graphics-preview.log'
     local f = io.open(path, 'w')
     if f then
-        local header = 'WH2 native UI diagnostic 0.6.28-nvda-automation-preview\n'
+        local header = 'WH2 native UI diagnostic 0.6.31-nvda-automation-preview\n'
         f:write(header); f:close(); log_bytes = #header + 1
         log_path = path; bridge_path = base .. (base == '' and 'jaws_access.jsonl' or 'bridge.jsonl')
         local bridge = io.open(bridge_path, 'w'); if bridge then bridge:close() end
@@ -983,6 +983,14 @@ local function same_layout(snapshot)
             local campaign_root_variant = snapshot.layout == 'campaign_selection'
                 and prefix == 'tree' and method == 'ChildCount' and read and read.ok
                 and (read.value == 5 or read.value == 6)
+            -- Observed in the live 0.6.30 main-menu capture: this one header
+            -- retains hover after the pointer leaves. Identity, visibility and
+            -- all other fields remain exact; raw confirmation still detects a
+            -- change between active and hover.
+            local dlc_header_hover = snapshot.layout == 'main'
+                and prefix == 'tree.child2.child1.child0.child0.child3.child0'
+                and method == 'CurrentState' and value == 'string:active'
+                and read and read.ok and read.value == 'hover'
             -- The fixture was reconstructed from the plain diagnostic log,
             -- which replaces each CR/LF with one space. Compare campaign text
             -- using that same representation, not broader whitespace cleanup.
@@ -993,7 +1001,7 @@ local function same_layout(snapshot)
                 and read and read.ok and type(read.value) == 'string'
                 and ('string:' .. read.value:gsub('[\r\n]', ' ')) == value
             if not read or not read.ok or (type(read.value) .. ':' .. tostring(read.value) ~= value
-                and not window_mode_variant and not campaign_root_variant and not diagnostic_text_variant) then
+                and not window_mode_variant and not campaign_root_variant and not dlc_header_hover and not diagnostic_text_variant) then
                 log('layout.mismatch', prefix .. '.' .. method .. '; expected ' .. quote(value) .. '; got ' .. quote(read and (type(read.value) .. ':' .. tostring(read.value)) or 'missing'))
                 return false
             end
@@ -1820,7 +1828,7 @@ local function publish_status()
     if #label > 800 then label = label:sub(1,800):gsub('[\192-\255][\128-\191]*$','') end
     local deadline='0'
     if pending then deadline=decimal_add(unix_value(),math.max(0,pending.deadline-clock_value())) end
-    local values = {'WH2STATUS1','0.6.28-nvda-automation-preview',session,tostring(generation),
+    local values = {'WH2STATUS1','0.6.31-nvda-automation-preview',session,tostring(generation),
         tostring(interaction_revision),tostring(auto_seq),auto_result,screen_kind,
         item and item.key or '-',label,tostring(#controls),pending and pending.target or '-',
         deadline,core:is_ui_created() and '1' or '0',
