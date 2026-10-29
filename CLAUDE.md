@@ -24,13 +24,14 @@ left intact. Paths like `work/live-0.6.17-lord-discovery` in the docs resolve he
 ## Current state — read before working
 
 - `docs/AUTOMATION_SESSION.md` — full session history and current stop point.
-- `docs/LORD_SELECT_0_6_23_TEST.md` — latest live result (lord selection).
+- `docs/SPEECH_CONVENTIONS_0_6_25.md` — latest live result (NVDA-style speech).
+- `docs/LORD_SELECT_0_6_23_TEST.md` — lord selection.
 - `docs/LORD_REFRESH_0_6_21_TEST.md` — automatic refresh.
 - `docs/LORD_READER_0_6_18_TEST.md` — the confirmed `string.find` root cause.
 - `docs/FRONTEND_AUTOMATION.md` — the opt-in automation channel protocol.
 
-Accepted build: **0.6.23** (installed, in source and packaging). 0.6.21, 0.6.18
-and 0.6.14 are previous good builds; 0.6.15–0.6.17 are failed candidates — never deploy them.
+Accepted build: **0.6.25** (installed, in source and packaging). 0.6.23, 0.6.21,
+0.6.18 and 0.6.14 are previous good builds; 0.6.15–0.6.17 are failed candidates — never deploy them.
 
 **Never call `string.find` in the runtime.** In WH2 the plain form returns nil
 for a match and then makes `string.sub` return numbers (confirmed live). Use
@@ -50,6 +51,13 @@ for a match and then makes `string.sub` return numbers (confirmed live). Use
 - Read desktop logs and game processes outside the sandbox; sandboxed reads can
   show stale files and miss the game process.
 
+## Speech and input conventions
+
+Follow NVDA conventions (JAWS later): `name, role, value, states, N of M`; the
+screen name once on arrival; short messages; no engine words or developer
+detail in speech. See docs/SPEECH_CONVENTIONS_0_6_25.md. Next: standard keys
+and single-press activation (owner-approved direction, not built yet).
+
 ## Live test scripts (`tools/live/`)
 
 Each takes `-Version 0.6.x` and/or `-Evidence work/live-<version>-<topic>`:
@@ -57,7 +65,7 @@ Each takes `-Version 0.6.x` and/or `-Evidence work/live-<version>-<topic>`:
 (lease, companion, launch with TWMM's mod list) → `Wait-Game` (records owned
 PID, waits for endpoint) → `Capture-Screen` (confirm main menu) → `Reach-Lord`
 → `Capture-Screen` (confirm Select Lord) → `Test-LordReader` → `Test-LordSelect`
-→ `Stop-Session`
+→ `Test-Speech` → `Stop-Session`
 (revoke lease, copy evidence, close only owned processes).
 `Start-Session -StringFindProbe` runs the string.find probe (separate launch).
 `Click-Screen -X -Y [-MoveOnly]` stands in for a user's mouse (physical pixels =
@@ -130,7 +138,7 @@ authorized scope.
 - Verify each major transition before continuing.
 - Never repeatedly click a control without checking the resulting state.
 - If the same launch step fails twice, investigate rather than retrying blindly.
-- Preserve the last known working build (0.6.23; before it 0.6.21) as the rollback.
+- Preserve the last known working build (0.6.25; before it 0.6.23) as the rollback.
 - Do not delete game saves or unrelated configuration files.
 - Distinguish launcher failures, mod-loading failures, game crashes, and
   accessibility integration failures.

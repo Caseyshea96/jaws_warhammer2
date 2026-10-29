@@ -351,3 +351,11 @@ freshness/identity check, and the next browse confirms the result in speech.
 Live: Teclis and Tyrion selected and confirmed, re-select refused, incomplete
 capture refused. 0.6.23 is installed and accepted. Details:
 LORD_SELECT_0_6_23_TEST.md.
+
+## 0.6.25 — NVDA-style speech (October 29)
+
+Owner asked for normal screen reader conventions, NVDA first. Speech now uses
+name, role, value, states, position; screen names on arrival; short messages.
+Lord setup is read in one go (final totals). Fixed: long watched text causing
+endless re-reads; hovered portrait dropped/unselectable. 0.6.25 installed and
+accepted. Details: SPEECH_CONVENTIONS_0_6_25.md.

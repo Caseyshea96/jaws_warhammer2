@@ -39,6 +39,7 @@ local scan_nodes, scan_parts, scan_reads = {}, {}, {}
 local snapshot_node_count = 0
 local lord_discovery
 local announce_prefix = ''
+local last_screen -- screen whose title was last spoken
 local lord_awaiting -- lord name sent by the last selection, until observed
 local screen_kind, awaiting_result = 'unknown', nil
 local function cancel() pending = nil end
@@ -340,7 +341,7 @@ for _, base in ipairs(bases) do
     local path = base .. 'native-ui-graphics-preview.log'
     local f = io.open(path, 'w')
     if f then
-        local header = 'WH2 native UI diagnostic 0.6.23-nvda-automation-preview\n'
+        local header = 'WH2 native UI diagnostic 0.6.25-nvda-automation-preview\n'
         f:write(header); f:close(); log_bytes = #header + 1
         log_path = path; bridge_path = base .. (base == '' and 'jaws_access.jsonl' or 'bridge.jsonl')
         local bridge = io.open(bridge_path, 'w'); if bridge then bridge:close() end
@@ -482,14 +483,16 @@ local function scope_campaign_controls()
             local name = captured_text(button .. '.child0','label_name')
             local state = captured_value(button,'CurrentState')
             if name ~= '' then controls[#controls+1] = {key=button, name=name .. ', campaign choice',
-                state=type(state)=='string' and state or 'state unavailable', read_only=true} end
+                state=type(state)=='string' and state or 'state unavailable', read_only=true,
+                label=name, role='radio button', engine_state=state} end
         end
     end
     if visible_id(campaign_continue_key,'button_next') then
         local name = captured_text(campaign_continue_key .. '.child1','button_txt')
         local state = captured_value(campaign_continue_key,'CurrentState')
         if name ~= '' then controls[#controls+1] = {key=campaign_continue_key, name=name .. ', button',
-            state=type(state)=='string' and state or 'state unavailable', read_only=false} end
+            state=type(state)=='string' and state or 'state unavailable', read_only=false,
+            label=name, role='button', engine_state=state} end
     end
     local description = 'tree.child2.child0.child0.child1.child0.child0.child0'
     local text = captured_text(description,'Text')
@@ -508,7 +511,8 @@ local function scope_campaign_controls()
     end
     if visible_id('tree.child3.child1.child0','button_home') then
         local name = clean(captured_value('tree.child3.child1.child0','GetTooltipText'))
-        if name ~= '' then controls[#controls+1] = {key='tree.child3.child1.child0',name=name .. ', use Escape',state='',read_only=true} end
+        if name ~= '' then controls[#controls+1] = {key='tree.child3.child1.child0',name=name .. ', use Escape',state='',read_only=true,
+            label=name, role='button'} end
     end
 end
 local advanced_panel = graphics_panel .. '.child0'
@@ -564,15 +568,16 @@ local function scope_advanced_controls()
             elseif spec.label_path then name = captured_text(prefix .. spec.label_path, spec.label_id)
             else name = clean(captured_value(prefix, 'GetTooltipText')) end
             if name ~= '' then
+                local label, value = name, nil
                 if spec.role == 'checkbox' then
                     -- Report native state separately; selected/active alone
                     -- has not established the checkbox's checked semantics.
                     name = name .. ', checkbox, checked state unavailable'
                 elseif spec.role == 'dropdown' then
-                    local value = captured_text(prefix .. '.child0', 'dy_selected_txt')
+                    value = captured_text(prefix .. '.child0', 'dy_selected_txt')
                     name = name .. ', ' .. (value ~= '' and value or 'value unavailable') .. ', dropdown'
                 elseif spec.role == 'slider' or spec.role == 'information' then
-                    local value = captured_text(prefix .. spec.value_path, spec.value_id)
+                    value = captured_text(prefix .. spec.value_path, spec.value_id)
                     name = name .. ', ' .. (value ~= '' and value or 'value unavailable') .. ', ' .. spec.role
                 else name = name .. ', button' end
                 local state = ''
@@ -582,7 +587,10 @@ local function scope_advanced_controls()
                     if type(state) ~= 'string' then state = 'state unavailable' end
                     if captured_value(state_prefix, 'IsInteractive') ~= true then state = state .. ', unavailable' end
                 end
-                controls[#controls + 1] = {key = prefix, name = name, state = state, read_only = true}
+                local engine = spec.role ~= 'information' and captured_value(spec.role == 'slider' and prefix .. '.child0' or prefix, 'CurrentState') or nil
+                local interactive = spec.role == 'information' or captured_value(spec.role == 'slider' and prefix .. '.child0' or prefix, 'IsInteractive') == true
+                controls[#controls + 1] = {key = prefix, name = name, state = state, read_only = true,
+                    label = label, role = spec.role, value = value and (value ~= '' and value or 'value unavailable') or nil, engine_state = engine, interactive = interactive}
             else log('advanced.label_unavailable', prefix) end
         end
     end
@@ -626,8 +634,9 @@ local function scope_controls()
             if spec.label_path then name = captured_text(prefix .. spec.label_path, spec.label_id)
             else name = clean(captured_value(prefix, 'GetTooltipText')) end
             if name ~= '' then
+                local label, value = name, nil
                 if spec.role == 'dropdown' then
-                    local value = captured_text(prefix .. '.child0', 'dy_selected_txt')
+                    value = captured_text(prefix .. '.child0', 'dy_selected_txt')
                     name = name .. ', ' .. (value ~= '' and value or 'value unavailable') .. ', dropdown'
                 elseif spec.role == 'checkbox' then
                     -- active/inactive is not evidence of a checkbox's checked value.
@@ -636,7 +645,9 @@ local function scope_controls()
                 local state = captured_value(prefix, 'CurrentState')
                 if type(state) ~= 'string' then state = 'state unavailable' end
                 if captured_value(prefix, 'IsInteractive') ~= true then state = state .. ', unavailable' end
-                controls[#controls + 1] = {key = prefix, name = name, state = state, read_only = spec.id ~= 'button_advanced_options'}
+                controls[#controls + 1] = {key = prefix, name = name, state = state, read_only = spec.id ~= 'button_advanced_options',
+                    label = label, role = spec.role, value = value and (value ~= '' and value or 'value unavailable') or nil,
+                    engine_state = captured_value(prefix, 'CurrentState'), interactive = captured_value(prefix, 'IsInteractive') == true}
             else log('graphics.label_unavailable', prefix) end
         end
     end
@@ -835,24 +846,75 @@ local function lord_spoken_name(item)
     end
     return name
 end
+-- NVDA order: name, role, value, states, position, then description.
+local screen_titles = {main='Main menu', campaign_selection='Select Campaign', lord_discovery='Select Lord',
+    graphics='Graphics', graphics_advanced='Advanced graphics'}
+local role_names = {checkbox='check box', dropdown='combo box', slider='slider', button='button',
+    ['radio button']='radio button'}
+local function engine_states(engine, interactive)
+    if interactive == false or engine == 'inactive' then return {'unavailable'} end
+    if engine == 'selected' then return {'selected'} end
+    return {}
+end
+local function describe(item)
+    if screen_kind == 'main' then return item.name, 'button', nil, engine_states(item.state) end
+    if screen_kind == 'lord_discovery' then
+        local raw = item.raw_name or item.name
+        local selected = item.raw_state == 'selected'
+        if item.lord_choice then return item.id, 'radio button', nil, {selected and 'checked' or 'not checked'} end
+        if item.id == 'checkbox_start_prelude' then
+            return item.label or 'Campaign introduction', 'check box', nil, {selected and 'checked' or 'not checked'}, item.description
+        end
+        local field = lord_names[item.key]
+        if field and field.id == item.id and item.id == 'dy_selected_txt' then return field.label, 'combo box', raw, {} end
+        if item.id == 'tab_movie' or item.id == 'tab_map' then return raw, 'tab', nil, selected and {'selected'} or {} end
+        if item.id == 'button_options' or item.parent_id == 'button_start_campaign' then return raw, 'button', nil, {} end
+        if starts_with(item.id, 'tx_') or item.raw_state == 'faction_traits' or item.raw_state == 'lord_traits' then
+            return raw, 'heading', nil, {}
+        end
+        return lord_spoken_name(item), nil, nil, {}
+    end
+    if item.role == 'radio button' then
+        return item.label, 'radio button', nil, {item.engine_state == 'selected' and 'checked' or 'not checked'}
+    end
+    if item.role == 'information' then return item.label, nil, item.value, {} end
+    if item.role then
+        local states = engine_states(item.engine_state, item.interactive)
+        if item.role == 'checkbox' and #states == 0 then states = {'state unknown'} end
+        return item.label or item.name, role_names[item.role] or item.role, item.value, states
+    end
+    return item.label or item.name, nil, nil, {}
+end
+local function spoken_item(item, index, count)
+    local name, role, value, states, description = describe(item)
+    local parts = {name}
+    if role then parts[#parts + 1] = role end
+    if value and value ~= '' then parts[#parts + 1] = value end
+    for _, state in ipairs(states or {}) do parts[#parts + 1] = state end
+    parts[#parts + 1] = index .. ' of ' .. count
+    if description and description ~= '' and description ~= name then parts[#parts + 1] = description end
+    return table.concat(parts, ', ')
+end
 local function announce_control(step)
     cancel()
     if #controls == 0 then
-        if screen_kind == 'campaign_overlay' then speak('An unsupported campaign overlay is present. Use Escape, then browse again.')
-        elseif screen_kind == 'graphics_advanced' then speak('Advanced graphics detected, but no mapped controls are readable. Send the native preview log.')
-        elseif screen_kind == 'graphics_advanced_overlay' then speak('An Advanced dropdown is expanded. Its options are not mapped yet. Use Escape to return.')
-        elseif screen_kind == 'graphics_overlay' then speak('Graphics dialog or expanded control is not supported yet. Use Escape to return.')
-        else speak('Unmapped frontend screen. Captured ' .. snapshot_node_count .. ' UI nodes. Send native-ui-graphics-preview.log to map campaign setup. No game action was sent.') end
+        if screen_kind == 'campaign_overlay' then speak('This screen is not supported yet. Press Escape to go back.')
+        elseif screen_kind == 'graphics_advanced' then speak('Advanced graphics. No readable controls.')
+        elseif screen_kind == 'graphics_advanced_overlay' then speak('This list is not supported yet. Press Escape to close it.')
+        elseif screen_kind == 'graphics_overlay' then speak('This dialog is not supported yet. Press Escape to go back.')
+        else speak('This screen is not supported yet.') end
         return
     end
     if control_index == 0 then control_index = step > 0 and 1 or #controls
     else control_index = ((control_index - 1 + step) % #controls) + 1 end
     local item = controls[control_index]
     if screen_kind=='lord_discovery' then item.raw_name=item.raw_name or item.name; item.name=lord_spoken_name(item) end
-    local state = item.state ~= '' and (', ' .. item.state) or ''
-    local context = screen_kind == 'lord_discovery' and 'Lord setup' or screen_kind == 'campaign_selection' and 'Campaign selection' or screen_kind == 'graphics_advanced' and 'Advanced graphics' or (screen_kind == 'graphics' and 'Graphics settings' or 'Controls')
     local prefix=announce_prefix; announce_prefix=''
-    speak(prefix .. context .. ', ' .. control_index .. ' of ' .. #controls .. ': ' .. item.name .. (item.read_only and ', read only' or '') .. state .. '.')
+    -- Like a screen reader entering a dialog: say the screen name once.
+    local title = screen_titles[screen_kind]
+    if title and screen_kind ~= last_screen then prefix = prefix .. title .. '. ' end
+    last_screen = screen_kind
+    speak(prefix .. spoken_item(item, control_index, #controls))
 end
 local graphics_key = 'tree.child2.child1.child0.child0.child2.child0.child1'
 local graphics_path = {
@@ -1049,49 +1111,49 @@ local function send_click(node, name)
     log('activation.returned', true)
 end
 local function activate_control()
-    if screen_kind == 'graphics_advanced' or screen_kind == 'graphics_advanced_overlay' then cancel(); speak('Advanced controls are read only. Use Escape to return.'); return end
-    if screen_kind == 'campaign_overlay' then cancel(); speak('Campaign overlay actions are not supported. Use Escape to return.'); return end
+    if screen_kind == 'graphics_advanced' or screen_kind == 'graphics_advanced_overlay' then cancel(); speak('Not supported yet.'); return end
+    if screen_kind == 'campaign_overlay' then cancel(); speak('Not supported yet.'); return end
     local item = controls[control_index]
-    if screen_kind == 'campaign_selection' and (not item or item.key ~= campaign_continue_key) then cancel(); speak('Campaign choices and information are read only. Only Continue can open the next setup screen.'); return end
-    if not captured or not item then cancel(); speak('Use F2 or F3 to choose New Campaign, Graphics or Advanced first.'); return end
+    if screen_kind == 'campaign_selection' and (not item or item.key ~= campaign_continue_key) then cancel(); speak('Not supported yet.'); return end
+    if not captured or not item then cancel(); speak('No item selected. Press F2 to move to an item.'); return end
     local target
     if screen_kind == 'campaign_selection' then target = targets.CampaignContinue
     elseif screen_kind == 'main' then target = item.key == campaign_key and targets.NewCampaign or targets.Graphics
     elseif screen_kind == 'graphics' and item.key == advanced_key then target = targets.Advanced
-    else cancel(); speak('Graphics settings are read only; only Advanced can open. Use Escape to return.'); return end
+    else cancel(); speak('Not supported yet.'); return end
     if item.key ~= target.key or item.name ~= target.entry_name or item.state ~= 'active' then
-        cancel(); speak('Only New Campaign, Continue, Graphics or Advanced can open. No game action was sent.'); return
+        cancel(); speak('Not supported yet.'); return
     end
     local original = browse_snapshot
-    if not original or original.layout ~= target.layout or not same_layout(original) then cancel(); speak('Activation blocked: this is not the verified screen, or a native read failed.'); return end
+    if not original or original.layout ~= target.layout or not same_layout(original) then cancel(); speak('Could not verify this screen. Press F2 and try again.'); return end
     local selected_index, selected_generation = control_index, generation
     local fresh = capture('F4 revalidation')
     if fresh.layout ~= target.layout or not same_layout(fresh) or fresh.generation ~= selected_generation
         or fresh.fingerprint ~= original.fingerprint then
-        invalidate(); speak('UI changed or could not be verified. Browse again before activating.'); return
+        invalidate(); speak('The screen changed. Press F2 and try again.'); return
     end
     local current = controls[selected_index]
     if not current or current.key ~= item.key or current.name ~= item.name or current.state ~= item.state then
-        invalidate(); speak('Selected control changed. Browse again.'); return
+        invalidate(); speak('The screen changed. Press F2 and try again.'); return
     end
     control_index = selected_index
     local node = resolve_target(fresh, target)
     local now = clock_value()
     if pending and (now < pending.armed_at or now > pending.deadline) then
-        cancel(); speak('Confirmation expired or the clock changed. Press F4 to start again.'); return
+        cancel(); speak('Confirmation timed out. Press F4 again.'); return
     end
     if not pending then
         pending = {target = target.key, armed_at = now, deadline = now + 4, fingerprint = fresh.fingerprint, generation = generation, origin = activation_origin}
         activation_outcome = 'armed'
         log('activation.armed', now)
-        speak(target.name .. '. Press F4 again within four seconds.'); return
+        speak(target.name .. '. Press F4 again to confirm.'); return
     end
     if pending.target ~= target.key or pending.generation ~= generation or pending.fingerprint ~= fresh.fingerprint then
-        invalidate(); speak('Confirmation cancelled because the UI changed.'); return
+        invalidate(); speak('Cancelled: the screen changed.'); return
     end
-    if log_failed then invalidate(); speak('Diagnostic log is full or unavailable. Restart the preview.'); return end
+    if log_failed then invalidate(); speak('Accessibility log unavailable. Restart the game.'); return end
     send_click(node, target.name)
-    speak('Input sent to ' .. target.name .. '. The resulting screen is not confirmed. Press F2 to inspect, or use Escape to return.')
+    speak(target.name .. ' activated. Press F2 to read the new screen.')
 end
 local function screen_still_current()
     -- Unknown setup screens can change descendants without replacing the panel.
@@ -1253,16 +1315,19 @@ local function lord_log(line)
     if not written or closed==nil then error('Lord discovery output write failed') end
     lord_file_started=true; lord_file_bytes=lord_file_bytes+#line+2
 end
-local function lord_text(value)
+-- Text fields are bounded to 1000 bytes (whole UTF-8 characters).
+local function lord_truncate(value)
     if type(value)~='string' then return '' end
-    if #value>1000 then
-        lord_discovery.limited=true
-        return string.sub(value,1,1000):gsub('[\192-\255][\128-\191]*$','')
-    end
+    if #value>1000 then return (string.sub(value,1,1000):gsub('[\192-\255][\128-\191]*$','')) end
     return value
+end
+local function lord_text(value)
+    if type(value)=='string' and #value>1000 then lord_discovery.limited=true end
+    return lord_truncate(value)
 end
 local function lord_begin(context)
     invalidate()
+    if lord_file_bytes>1048576 then lord_file_started,lord_file_bytes=false,0 end
     lord_run=lord_run+1
     lord_discovery={root_address=context.root_address,panel_address=context.panel_address,
         generation=generation,queue={{path={2},label='tree.child2',ids={}}},head=1,
@@ -1335,12 +1400,21 @@ local function lord_page(announce)
                     .. ',"text_type":' .. quote(types.GetStateText) .. ',"tooltip_type":' .. quote(types.GetTooltipText) .. '}')
                 local name=clean(text)
                 local tooltip=clean(tip)
+                local parent_id=(item.ids or {})[#(item.ids or {})]
                 local function entry(suffix,label)
                     if label=='' then return end
+                    -- Fold the intro check box's label/description into one
+                    -- check box entry; drop labels that repeat a combo box.
+                    if parent_id=='checkbox_start_prelude' then
+                        if suffix=='text' and d.checkbox_entry then d.checkbox_entry.label=label end
+                        return
+                    end
+                    if id=='tx' and (parent_id=='dropdown_campaign' or parent_id=='dropdown_battle') then return end
                     if #controls>=512 then d.limited=true; return end
                     local key='lord:' .. item.label .. ':' .. suffix
                     local entry_item={key=key,name=label,
-                        state=(state=='selected' or state=='inactive') and state or '',read_only=true,id=id,raw_state=state}
+                        state=(state=='selected' or state=='inactive') and state or '',read_only=true,id=id,raw_state=state,parent_id=parent_id}
+                    if id=='checkbox_start_prelude' then entry_item.description=label; d.checkbox_entry=entry_item end
                     -- Remember where the few named fields live so a later
                     -- browse can notice a manual lord/difficulty change.
                     local field=lord_names[key]
@@ -1350,7 +1424,7 @@ local function lord_page(announce)
                         entry_item.watch_path,entry_item.watch_text=path,label
                         if lord_awaiting and field.label=='Selected lord' then
                             log('activation.observed_result',(label==lord_awaiting and 'lord-match:' or 'lord-mismatch:') .. label)
-                            announce_prefix=label==lord_awaiting and ('Confirmed: ' .. label .. ' is now the selected lord. ')
+                            announce_prefix=label==lord_awaiting and (label .. ' is now selected. ')
                                 or ('Selection not confirmed: the selected lord is ' .. label .. '. ')
                             lord_awaiting=nil
                         end
@@ -1367,7 +1441,7 @@ local function lord_page(announce)
                 local ids,depth=item.ids or {},#(item.ids or {})
                 if depth>=4 and ids[depth]=='list_box' and ids[depth-1]=='list_clip' and ids[depth-2]=='list'
                     and ids[depth-3]=='lord_select_list' and id~='' and id~='race_spacer' and id~='show_all_dlc'
-                    and (state=='active' or state=='selected') and values.IsInteractive==true then
+                    and (state=='active' or state=='selected' or state=='hover') and values.IsInteractive==true then
                     if #controls>=512 then d.limited=true else
                         local path={}
                         for part,value in ipairs(item.path) do path[part]=value end
@@ -1402,8 +1476,7 @@ local function lord_page(announce)
     end
     screen_kind='lord_discovery'
     local result=d.done and (d.limited and 'discovery-limited' or 'discovery-complete') or 'discovery-page'
-    if announce then speak('Lord setup discovery page ' .. d.page .. '. ' .. d.visited .. ' nodes examined. '
-        .. #controls .. ' captured text entries. ' .. (d.done and (d.limited and 'Capture limited.' or 'Discovery complete.') or 'More pages available.') .. ' Read only. No game action was sent.') end
+    if announce and d.done then speak(d.limited and 'Screen read, but some content was skipped.' or 'Screen read again.') end
     return result
 end
 -- Re-read only the watched named fields (at most five short paths). Returns
@@ -1414,7 +1487,7 @@ local function lord_changed_field(context)
             local node=lord_resolve(context.root,item.watch_path)
             if not node then return item.watch_text end
             local ok,text=lord_read(function() local v=node:GetStateText(); return v end)
-            if not ok or clean(text)~=item.watch_text then return item.watch_text end
+            if not ok or clean(lord_truncate(text))~=item.watch_text then return item.watch_text end
         end
     end
     return nil
@@ -1432,20 +1505,20 @@ local function lord_browse(step)
         if changed then
             lord_log('{"kind":"stale","run":' .. lord_run .. ',"field":' .. quote(changed) .. '}')
             lord_begin(context); d=lord_discovery
-            announce_prefix='Lord setup changed. '; step=1
+            announce_prefix='Screen updated. '; step=1
         end
     end
-    local before=#controls
     if not d or d.root_address~=context.root_address or d.panel_address~=context.panel_address
-        or d.generation~=generation or #controls==0 or (step>0 and control_index==#controls and not d.done) then
-        lord_page(false)
-        if before==#controls and lord_discovery and not lord_discovery.done and control_index==#controls then
-            speak('Lord setup discovery page ' .. lord_discovery.page .. ' has no new readable entries. Press F2 to continue discovery. Read only.')
-            return true
+        or d.generation~=generation or not d.done then
+        -- Read the whole bounded Lord setup at once so positions and totals
+        -- are final, as a screen reader expects. The node budget (1536 at 48
+        -- per page) caps this at 32 pages; Discover stays one page per call.
+        for _=1,40 do
+            if lord_page(false)=='blocked' or not lord_discovery or lord_discovery.done then break end
         end
     end
     if #controls==0 then
-        speak('Lord setup discovery has no readable text on this page. Press F2 for the next page. Read only.')
+        speak('This screen has no readable text.')
     else announce_control(step) end
     return true
 end
@@ -1475,44 +1548,46 @@ end
 -- still-current capture; every other Lord setup entry stays read only.
 local function lord_activate()
     local item,d=controls[control_index],lord_discovery
-    if item.raw_state=='selected' then cancel(); speak(item.id .. ' is already the selected lord. No game action was sent.'); return end
+    if item.raw_state=='selected' then cancel(); speak(item.id .. ' is already selected.'); return end
     if not d or not d.done or d.limited then
-        cancel(); speak('Finish reading the lord setup with F2 before choosing a lord. No game action was sent.'); return
+        cancel(); speak(d and d.done and 'This screen could not be read completely, so choosing is unavailable.'
+            or 'Still reading this screen. Press F2, then try again.'); return
     end
     local context=lord_context()
     if not context or d.generation~=generation or context.root_address~=d.root_address or context.panel_address~=d.panel_address then
-        invalidate(); speak('Lord setup could not be verified. Browse again. No game action was sent.'); return
+        log('activation.lord_blocked', 'context'); invalidate(); speak('The screen changed. Press F2 and try again.'); return
     end
-    if lord_changed_field(context) then invalidate(); speak('Lord setup changed. Browse again. No game action was sent.'); return end
+    local changed = lord_changed_field(context)
+    if changed then log('activation.lord_blocked', 'stale:' .. changed); invalidate(); speak('The screen changed. Press F2 and try again.'); return end
     local node,reason=lord_resolve_checked(context.root,item.choice_path,item.choice_ids,item.id)
-    if not node then invalidate(); speak('Lord choice could not be verified: ' .. reason .. '. No game action was sent.'); return end
+    if not node then invalidate(); log('activation.lord_unverified', reason); speak('The screen changed. Press F2 and try again.'); return end
     local interactive_ok,interactive=lord_read(function() local v=node:IsInteractive(); return v end)
     local state_ok,state=lord_read(function() local v=node:CurrentState(); return v end)
-    if not interactive_ok or interactive~=true or not state_ok or state~='active' then
-        invalidate(); speak('Lord choice state changed. Browse again. No game action was sent.'); return
+    if not interactive_ok or interactive~=true or not state_ok or (state~='active' and state~='hover') then
+        log('activation.lord_blocked', 'state:' .. tostring(state)); invalidate(); speak('The screen changed. Press F2 and try again.'); return
     end
     local now=clock_value()
     if pending and (now<pending.armed_at or now>pending.deadline) then
-        cancel(); speak('Confirmation expired or the clock changed. Press F4 to start again.'); return
+        cancel(); speak('Confirmation timed out. Press F4 again.'); return
     end
     if not pending then
         pending={target=item.key,armed_at=now,deadline=now+4,fingerprint=item.id,generation=generation,origin=activation_origin}
         activation_outcome='armed'
         log('activation.armed',now)
-        speak('Select lord ' .. item.id .. '. Press F4 again within four seconds.'); return
+        speak('Select ' .. item.id .. '. Press F4 again to confirm.'); return
     end
     if pending.target~=item.key or pending.generation~=generation or pending.fingerprint~=item.id then
-        invalidate(); speak('Confirmation cancelled because the selection changed.'); return
+        invalidate(); speak('Cancelled: the selection changed.'); return
     end
-    if log_failed then invalidate(); speak('Diagnostic log is full or unavailable. Restart the preview.'); return end
+    if log_failed then invalidate(); speak('Accessibility log unavailable. Restart the game.'); return end
     lord_awaiting=item.id
     send_click(node,'Lord choice: ' .. item.id)
-    speak('Input sent to select ' .. item.id .. '. Press F2 to read the updated setup and confirm.')
+    speak(item.id .. ' chosen. Press F2 to read the updated screen.')
 end
 
 local function lifecycle(name)
     generation = generation + 1
-    invalidate()
+    invalidate(); last_screen = nil
     log(name, generation)
 end
 core:add_ui_created_callback(function() lifecycle('lifecycle.created'); if start_automation then start_automation() end end)
@@ -1559,7 +1634,7 @@ local function navigate(shortcut, source)
     local reported = pcall(function()
         if not ok then
             invalidate(); log('navigation.ERROR', err)
-            speak('Navigation failed: ' .. tostring(err) .. '. Send the native preview log.')
+            speak('Could not read this screen.')
         else log('navigation.COMPLETE', shortcut) end
     end)
     if not reported then plain_log('navigation.REPORT_FAILED', ok and 'after-success' or 'after-error') end
@@ -1571,19 +1646,24 @@ local function request_activation(source)
     local lord_mode=lord_discovery or screen_kind=='lord_discovery'
     if lord_mode then
         local item=controls[control_index]
-        if not (item and item.lord_choice) then cancel(); speak('Lord setup discovery is read only. No game action was sent.'); return true,'blocked' end
+        if not (item and item.lord_choice) then
+            cancel()
+            local _, role = describe(item or {})
+            if item and role and role ~= 'heading' then speak('Not supported yet.') end
+            return true,'blocked'
+        end
     end
     log('activation.source', source); log('activation.received', 'script_F4')
     if pending and pending.origin ~= source then
         cancel(); log('activation.confirmation_source_changed', source)
-        speak('Confirmation cancelled because the input source changed.'); return false, 'blocked'
+        speak('Cancelled.'); return false, 'blocked'
     end
     local ok, err = pcall(function() if lord_mode then lord_activate() else activate_control() end end)
     if not ok then
         local after_input = activation_outcome == 'input-sent'
         invalidate(); log('activation.ERROR', err)
         activation_outcome = after_input and 'error-after-input' or 'error'
-        speak('Activation could not be verified: ' .. tostring(err))
+        speak('Could not activate.')
     end
     return ok, activation_outcome
 end
@@ -1684,7 +1764,7 @@ local function publish_status()
     if #label > 800 then label = label:sub(1,800):gsub('[\192-\255][\128-\191]*$','') end
     local deadline='0'
     if pending then deadline=decimal_add(unix_value(),math.max(0,pending.deadline-clock_value())) end
-    local values = {'WH2STATUS1','0.6.23-nvda-automation-preview',session,tostring(generation),
+    local values = {'WH2STATUS1','0.6.25-nvda-automation-preview',session,tostring(generation),
         tostring(interaction_revision),tostring(auto_seq),auto_result,screen_kind,
         item and item.key or '-',label,tostring(#controls),pending and pending.target or '-',
         deadline,core:is_ui_created() and '1' or '0',
@@ -1833,5 +1913,5 @@ end
 core:add_listener('graphics_preview_automation_init','FrontendScreenTransition',true,
     function() if start_automation then start_automation() end end,true)
 start_automation()
-speak('NVDA automation preview 0.6.23. F2 next, F3 previous. New Campaign and Continue use double F4. Campaign selection has a spoken browser. Starting a campaign is not enabled.')
+speak('Warhammer accessibility ready. F2 and F3 move, F4 activates.')
 

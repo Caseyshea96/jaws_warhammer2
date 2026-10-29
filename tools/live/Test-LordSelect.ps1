@@ -58,7 +58,7 @@ function Select-Lord([string]$Name) {
     Start-Sleep -Seconds 2
     $code, $s = Client 'Next'
     $spoken = LastSpeech
-    if ($code -or $s.screen -ne 'lord_discovery' -or $spoken -notlike "Confirmed: $Name is now the selected lord.*") { throw "Selection of $Name not confirmed in speech ($spoken)." }
+    if ($code -or $s.screen -ne 'lord_discovery' -or $spoken -notlike "$Name is now selected.*") { throw "Selection of $Name not confirmed in speech ($spoken)." }
     # The selected-lord field is captured on the first page; read until it is.
     for ($i = 0; $i -lt 10 -and (Observed).Count -eq $observedBefore; $i++) { $code, $s = Client 'Next' }
     if ((Observed).Count -ne $observedBefore + 1) { throw "No observed result after selecting $Name." }
@@ -73,7 +73,7 @@ Complete-Capture
 $choice = Find-Choice $Lord
 $before = Dispatches
 $code, $s = Client 'Activate' $choice.selected_key
-if ($s.result -ne 'blocked' -and $s.result -ne 'completed' -or (Dispatches) -ne $before -or (LastSpeech) -notlike '*already the selected lord*') {
+if ($s.result -ne 'blocked' -and $s.result -ne 'completed' -or (Dispatches) -ne $before -or (LastSpeech) -notlike '*is already selected*') {
     throw "Re-selecting $Lord was not refused (result $($s.result), '$(LastSpeech)')."
 }
 "PASS: re-selecting $Lord refused with no click."

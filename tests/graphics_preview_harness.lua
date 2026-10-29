@@ -131,20 +131,26 @@ local function last()
     if bridge == '' then bridge = contents('jaws_access.jsonl') end
     return bridge:match('([^\n]+)\n$') or ''
 end
+-- NVDA-style speech: name, role, value, states, position.
+local function says(...)
+    local text = last()
+    for _, part in ipairs({...}) do if not text:find(part,1,true) then return false end end
+    return true
+end
 local function choose_graphics()
     for i=1,22 do
         key('script_F2')
-        if last():find(': Graphics, active',1,true) then return end
+        if says('Graphics, button') then return end
     end
     error('Graphics was not found: ' .. last())
 end
 local function no_dispatch(message) assert(#dispatches == 0, message) end
 start()
 key('script_F4'); no_dispatch('No selection')
-key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
-key('script_F3'); assert(last():find('22 of 22: Quit',1,true))
-key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
-key('script_F2'); assert(last():find('Continue Campaign, inactive',1,true))
+key('script_F2'); assert(says('New Campaign','1 of 22'))
+key('script_F3'); assert(says('Quit','22 of 22'))
+key('script_F2'); assert(says('New Campaign','1 of 22'))
+key('script_F2'); assert(says('Continue Campaign, button, unavailable'))
 assert(contents('native-ui-graphics-preview.log'):find('tree.nodes\tnumber\t86',1,true))
 -- Browsing is cached; a second F2 does not rescan or change the native read order.
 local _, captures = contents('native-ui-graphics-preview.log'):gsub('capture.COMPLETE','')
@@ -153,13 +159,13 @@ choose_graphics(); key('script_F4')
 assert(last():find('Press F4 again',1,true), last()); no_dispatch('First F4 only arms')
 now=1001; key('script_F4')
 assert(#dispatches==1 and dispatches[1]==graphics_key)
-assert(last():find('resulting screen is not confirmed',1,true))
+assert(says('activated. Press F2 to read the new screen.'))
 key('script_F4'); assert(#dispatches==1, 'Third F4 cannot reuse confirmation')
 -- All other classified main-menu controls remain blocked, including Continue and Quit.
 start()
 for i=1,22 do
     key('script_F2')
-    if not last():find(': Graphics, active',1,true) and not last():find(': New Campaign, active',1,true) then
+    if not says('Graphics, button') and not says('New Campaign, button') then
         key('script_F4'); key('script_F4'); no_dispatch('Non-Graphics control')
     end
 end
@@ -169,7 +175,7 @@ no_dispatch('Navigation cancels'); assert(last():find('Press F4 again',1,true))
 -- Timeouts and clock rollback do not send input or retain the old confirmation.
 for _, delta in ipairs({5,-1}) do
     start(); choose_graphics(); key('script_F4'); now=now+delta; key('script_F4')
-    no_dispatch('Time changed'); assert(last():find('clock changed',1,true))
+    no_dispatch('Time changed'); assert(says('timed out'))
 end
 start(); choose_graphics(); key('script_F4'); now=0/0; key('script_F4'); no_dispatch('Invalid clock')
 -- Same-looking replacement native components must be rejected.
@@ -225,7 +231,7 @@ end
 key('script_F4'); no_dispatch('Leaf replaced during final resolution')
 -- A click that recreates the UI is still reported only as input sent.
 start(); choose_graphics(); key('script_F4'); click_hook=function() created() end
-key('script_F4'); assert(#dispatches==1); assert(last():find('not confirmed',1,true))
+key('script_F4'); assert(#dispatches==1); assert(says('activated. Press F2 to read the new screen.'))
 -- Errors after native dispatch may not be presented as confirmed success.
 start(); choose_graphics(); key('script_F4'); click_hook=function() error('native click exception') end
 key('script_F4'); assert(#dispatches==1); assert(not last():find('Graphics opened',1,true))
@@ -256,7 +262,7 @@ start(); created(); key('script_F2'); key('script_F3')
 assert(contents('native-ui-graphics-preview.log'):find('navigation.received\tstring\tscript_F2',1,true))
 assert(contents('native-ui-graphics-preview.log'):find('navigation.received\tstring\tscript_F3',1,true))
 assert(contents('native-ui-graphics-preview.log'):find('capture.ENTER\tstring\tbrowse',1,true))
-assert(last():find('22 of 22: Quit',1,true))
+assert(says('Quit','22 of 22'))
 -- A remapped/unrecognized shortcut is traced without starting a scan or action.
 start(); key('script_shift_F2')
 assert(contents('native-ui-graphics-preview.log'):find('shortcut.seen\tstring\tstring:script_shift_F2',1,true))
@@ -271,8 +277,8 @@ assert(shortcut_count==64)
 -- and permits a fresh browse after the transient failure clears.
 start(); speech_write_throw=true; key('script_F2')
 assert(contents('native-ui-graphics-preview.log'):find('navigation.ERROR',1,true))
-assert(last():find('Navigation failed:',1,true)); no_dispatch('Navigation exception')
-key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
+assert(says('Could not read this screen.')); no_dispatch('Navigation exception')
+key('script_F2'); assert(says('New Campaign','1 of 22'))
 -- The successful diagnostic does not require string.match. A reduced host
 -- library must not break logging, navigation, or the error-reporting path.
 start()
@@ -281,59 +287,59 @@ string.match=nil
 local minimal_ok, minimal_err=pcall(function() key('script_F2'); key('script_F3') end)
 string.match=original_match
 assert(minimal_ok, minimal_err)
-assert(last():find('22 of 22: Quit',1,true))
+assert(says('Quit','22 of 22'))
 assert(contents('native-ui-graphics-preview.log'):find('capture.buffers',1,true))
 -- The real Graphics capture contains seven controls, not the three footer links.
 start(nil, graphics_fixture)
-local expected_names={'Run in window','Accept changes','Cancel changes','Advanced','Recommended','Resolution, 1280x720','Quality, Low'}
+local expected_names={'Run in window, check box','Accept changes, button','Cancel changes, button','Advanced, button','Recommended, button','Resolution, combo box, 1280x720','Quality, combo box, Low'}
 for _, name in ipairs(expected_names) do
     key('script_F2')
-    assert(last():find('of 7:',1,true) and last():find(name,1,true),last())
+    assert(says(' of 7') and last():find(name,1,true),last())
     assert(not last():find('Total War Academy',1,true) and not last():find('Patch Notes',1,true) and not last():find('Quit',1,true))
-    if name ~= 'Advanced' then
+    if name ~= 'Advanced, button' then
         key('script_F4'); key('script_F4'); no_dispatch('Graphics setting remains read only')
-        assert(last():find('Graphics settings are read only',1,true))
+        assert(says('Not supported yet.'))
     end
 end
-key('script_F2'); assert(last():find('1 of 7: Run in window',1,true))
-assert(last():find('checked state unavailable',1,true))
-key('script_F3'); assert(last():find('7 of 7: Quality, Low',1,true))
+key('script_F2'); assert(says('Run in window','1 of 7'))
+assert(says('check box, state unknown'))
+key('script_F3'); assert(says('Quality, combo box, Low','7 of 7'))
 -- Native result observation after a single allowed click produces the scoped list.
 start(); choose_graphics(); key('script_F4')
 click_hook=function() nodes=build_nodes(graphics_fixture) end
 key('script_F4'); assert(#dispatches==1)
-key('script_F2'); assert(last():find('Graphics settings, 1 of 7',1,true))
+key('script_F2'); assert(says('Graphics. Run in window','1 of 7'))
 assert(contents('native-ui-graphics-preview.log'):find('capture.screen\tstring\tgraphics',1,true))
 -- Escape may replace the panel without a UI-created event. Probe its identity
 -- before reusing cached entries, then restore the main-menu list.
 nodes=build_nodes(fixture)
-key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
+key('script_F2'); assert(says('New Campaign','1 of 22'))
 assert(contents('native-ui-graphics-preview.log'):find('navigation.screen_changed',1,true))
 -- Background controls remain hidden on unknown, advanced and popup screens.
 start(nil, graphics_fixture); nodes['tree.child2'].data.Id='unknown_panel'; key('script_F2')
-assert(last():find('Unmapped frontend screen',1,true)); no_dispatch('Unknown panel')
+assert(says('This screen is not supported yet.')); no_dispatch('Unknown panel')
 for _, prefix in ipairs({'tree.child2.child0','tree.child2.child2','tree.child2.child1.child5.child1','tree.child2.child1.child6.child1'}) do
     start(nil, graphics_fixture); nodes[prefix].data.Visible=true; key('script_F2')
-    assert(last():find(prefix=='tree.child2.child0' and 'Advanced graphics detected' or 'Graphics dialog or expanded control',1,true),last())
+    assert(last():find(prefix=='tree.child2.child0' and 'Advanced graphics. No readable controls.' or 'This dialog is not supported yet.',1,true),last())
     key('script_F4'); no_dispatch('Unsupported popup cannot activate')
 end
 -- Hidden controls are excluded; malformed selected values are not fabricated.
 start(nil, graphics_fixture); nodes['tree.child2.child1.child2.child1'].data.Visible=false
-key('script_F2'); assert(last():find('1 of 6:',1,true))
+key('script_F2'); assert(says('1 of 6'))
 start(nil, graphics_fixture); nodes['tree.child2.child1.child5.child0'].faults.GetStateText='function'
 for i=1,6 do key('script_F2') end
-assert(last():find('Resolution, value unavailable',1,true))
+assert(says('Resolution, combo box, value unavailable'))
 -- Manually entering Graphics also invalidates a main-menu cache without a
 -- lifecycle event. It does not dispatch any input through this integration.
 start(); key('script_F2'); nodes=build_nodes(graphics_fixture); key('script_F2')
-assert(last():find('1 of 7: Run in window',1,true)); no_dispatch('Manual panel transition')
+assert(says('Run in window','1 of 7')); no_dispatch('Manual panel transition')
 -- Graphics naming and root/panel probes also work without string.match.
 start(nil, graphics_fixture)
 original_match=string.match; string.match=nil
 local graphics_minimal_ok,graphics_minimal_err=pcall(function() for i=1,7 do key('script_F2') end end)
 string.match=original_match
 assert(graphics_minimal_ok,graphics_minimal_err)
-assert(last():find('7 of 7: Quality, Low',1,true))
+assert(says('Quality, combo box, Low','7 of 7'))
 -- Advanced activation changes only a view. These synthetic leaves remain
 -- useful for testing bounded discovery independently of production labels.
 local advanced_key='tree.child2.child1.child3'
@@ -354,21 +360,21 @@ local function install_scene(layout)
 end
 local function choose_advanced()
     for i=1,4 do key('script_F2') end
-    assert(last():find('4 of 7: Advanced, button',1,true),last())
+    assert(says('Advanced, button','4 of 7'),last())
 end
 start(nil,graphics_fixture); choose_advanced(); key('script_F4')
 assert(last():find('Advanced. Press F4 again',1,true)); no_dispatch('First Advanced confirmation')
 click_hook=function() install_scene(advanced_fixture) end
 key('script_F4'); assert(#dispatches==1 and dispatches[1]==advanced_key)
 assert(not contents('native-ui-graphics-preview.log'):find('activation.observed_result',1,true))
-key('script_F2'); assert(last():find('Advanced graphics detected',1,true))
+key('script_F2'); assert(says('Advanced graphics. No readable controls.'))
 assert(contents('native-ui-graphics-preview.log'):find('activation.observed_result\tstring\tAdvanced',1,true))
 assert(contents('native-ui-graphics-preview.log'):find('fixture_advanced_11',1,true))
 key('script_F4'); assert(#dispatches==1)
 -- Collapsing Advanced without replacing the root or Graphics component must
 -- refresh the cache using the observed child visibility flags.
 install_scene(graphics_fixture); key('script_F2')
-assert(last():find('1 of 7: Run in window',1,true))
+assert(says('Run in window','1 of 7'))
 assert(contents('native-ui-graphics-preview.log'):find('navigation.screen_changed',1,true))
 for _, delta in ipairs({5,-1}) do
     start(nil,graphics_fixture); choose_advanced(); key('script_F4'); now=now+delta; key('script_F4')
@@ -419,25 +425,25 @@ end
 start(nil,oversized); key('script_F2')
 assert(contents('native-ui-graphics-preview.log'):find('tree.nodes\tnumber\t200',1,true))
 assert(contents('native-ui-graphics-preview.log'):find('.bounded',1,true))
-assert(last():find('Advanced graphics detected',1,true))
+assert(says('Advanced graphics. No readable controls.'))
 key('script_F4'); no_dispatch('Bounded Advanced discovery has no setting action')
 -- The observed 152-node panel has 33 semantic entries. These labels/values
 -- come from the captured native fields, not the synthetic discovery subtree.
 start(nil,captured_advanced_fixture)
 local advanced_names={
-    'Benchmark, button','Unlimited video memory','V-sync','Vignette','Proximity fading','Battery meter','SSAO','Sharpening',
-    'Direct X, DX11','Anti-aliasing, Off','Texture quality, Low','Texture filtering, Trilinear','Shadow detail, Off',
-    'Water detail, Low','VFX detail, Low','Grass detail, Low','Tree detail, Low','Terrain detail, Low','Unit detail, Low',
-    'Building detail, Low','Depth of field, Off','Unit size, Small','Screen space reflections, Off','Porthole quality, 2D',
-    'Fog, Low','Corpse Lifespan (in seconds), 30','Graphics Card, Intel(R) Iris(R) Plus Graphics',
-    'Video Memory (MB), 800 MB','Accept changes, button','Cancel changes, button','Resolution scale, +100%, slider',
-    'UI scale, 100%, slider','Apply UI Scale, button'}
+    'Benchmark, button','Unlimited video memory, check box','V-sync, check box','Vignette, check box','Proximity fading, check box','Battery meter, check box','SSAO, check box','Sharpening, check box',
+    'Direct X, combo box, DX11','Anti-aliasing, combo box, Off','Texture quality, combo box, Low','Texture filtering, combo box, Trilinear','Shadow detail, combo box, Off',
+    'Water detail, combo box, Low','VFX detail, combo box, Low','Grass detail, combo box, Low','Tree detail, combo box, Low','Terrain detail, combo box, Low','Unit detail, combo box, Low',
+    'Building detail, combo box, Low','Depth of field, combo box, Off','Unit size, combo box, Small','Screen space reflections, combo box, Off','Porthole quality, combo box, 2D',
+    'Fog, combo box, Low','Corpse Lifespan (in seconds), combo box, 30','Graphics Card, Intel(R) Iris(R) Plus Graphics',
+    'Video Memory (MB), 800 MB','Accept changes, button','Cancel changes, button','Resolution scale, slider, +100%',
+    'UI scale, slider, 100%','Apply UI Scale, button'}
 for i,name in ipairs(advanced_names) do
     key('script_F2')
-    assert(last():find('Advanced graphics, '..i..' of 33:',1,true) and last():find(name,1,true),last())
-    assert(last():find('read only',1,true))
-    if i==2 or i==9 or i==25 then assert(last():find('inactive',1,true)) end
-    if i==5 or i==8 then assert(last():find('selected',1,true) and last():find('checked state unavailable',1,true)) end
+    assert(says(i..' of 33') and last():find(name,1,true),last())
+    assert(not last():find('read only',1,true))
+    if i==2 or i==9 or i==25 then assert(says('unavailable')) end
+    if i==5 or i==8 then assert(says('check box, selected'),last()) end
     assert(not last():find('Total War Academy',1,true) and not last():find('Patch Notes',1,true) and not last():find('Quit',1,true))
     key('script_F4'); key('script_F4'); no_dispatch('Every Advanced setting is read only')
 end
@@ -445,29 +451,29 @@ assert(contents('native-ui-graphics-preview.log'):find('tree.nodes\tnumber\t152'
 assert(not contents('native-ui-graphics-preview.log'):find('.bounded',1,true))
 local _, actual_captures=contents('native-ui-graphics-preview.log'):gsub('capture.COMPLETE','')
 assert(actual_captures==1, 'Advanced navigation must remain cached')
-key('script_F2'); assert(last():find('1 of 33: Benchmark',1,true))
-key('script_F3'); assert(last():find('33 of 33: Apply UI Scale',1,true))
+key('script_F2'); assert(says('Benchmark','1 of 33'))
+key('script_F3'); assert(says('Apply UI Scale','33 of 33'))
 -- Real observed panels also test unchanged-root visibility transitions.
-install_scene(graphics_fixture); key('script_F2'); assert(last():find('1 of 7: Run in window',1,true))
-install_scene(captured_advanced_fixture); key('script_F2'); assert(last():find('1 of 33: Benchmark',1,true))
-install_scene(fixture); key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
+install_scene(graphics_fixture); key('script_F2'); assert(says('Run in window','1 of 7'))
+install_scene(captured_advanced_fixture); key('script_F2'); assert(says('Benchmark','1 of 33'))
+install_scene(fixture); key('script_F2'); assert(says('New Campaign','1 of 22'))
 -- Hidden and presentation-only descendants are not navigation entries.
 start(nil,captured_advanced_fixture); nodes['tree.child2.child0.child0'].data.Visible=false
-key('script_F2'); assert(last():find('1 of 32: Unlimited video memory',1,true))
+key('script_F2'); assert(says('Unlimited video memory','1 of 32'))
 -- A missing dropdown value is announced as unavailable, never inferred from state.
 start(nil,captured_advanced_fixture); nodes['tree.child2.child0.child2.child0.child0'].faults.GetStateText='function'
 for i=1,9 do key('script_F2') end
-assert(last():find('Direct X, value unavailable',1,true))
+assert(says('Direct X, combo box, value unavailable'))
 -- A missing native label excludes its control without exposing an internal id.
 start(nil,captured_advanced_fixture); nodes['tree.child2.child0.child2.child0.child2'].faults.GetStateText='function'
-key('script_F2'); assert(last():find('of 32:',1,true))
+key('script_F2'); assert(says(' of 32'))
 for i=1,32 do
     key('script_F2'); assert(not last():find('dropdown_directx',1,true))
 end
 -- Popup detection at capture time hides the underlying panel until a future
 -- popup reader is implemented. No setting action is dispatched.
 start(nil,captured_advanced_fixture); nodes['tree.child2.child0.child2.child0.child1'].data.Visible=true
-key('script_F2'); assert(last():find('Advanced dropdown is expanded',1,true))
+key('script_F2'); assert(says('This list is not supported yet.'))
 key('script_F4'); no_dispatch('Expanded Advanced popup')
 -- No optional string.match dependency is introduced by the new reader.
 start(nil,captured_advanced_fixture)
@@ -475,14 +481,14 @@ original_match=string.match; string.match=nil
 local advanced_minimal_ok,advanced_minimal_err=pcall(function() for i=1,33 do key('script_F2') end end)
 string.match=original_match
 assert(advanced_minimal_ok,advanced_minimal_err)
-assert(last():find('33 of 33: Apply UI Scale',1,true))
+assert(says('Apply UI Scale','33 of 33'))
 -- Regression: persisted windowed mode must not block Advanced view activation.
 -- This uses the actual failing 0.5.9 basic-screen capture.
 start(nil,windowed_fixture); choose_advanced(); key('script_F4')
 assert(last():find('Advanced. Press F4 again',1,true),last())
 click_hook=function() install_scene(captured_advanced_fixture) end
 key('script_F4'); assert(#dispatches==1 and dispatches[1]==advanced_key)
-key('script_F2'); assert(last():find('1 of 33: Benchmark',1,true))
+key('script_F2'); assert(says('Benchmark','1 of 33'))
 assert(contents('native-ui-graphics-preview.log'):find('activation.observed_result\tstring\tAdvanced',1,true))
 -- Allowing a starting variant must not allow that value to change while armed.
 for _, initial in ipairs({'active','selected'}) do
@@ -514,7 +520,7 @@ start(nil,windowed_fixture); choose_advanced(); key('script_F4')
 nodes[advanced_key].address=newproxy(); key('script_F4'); no_dispatch('Windowed mode still requires native identity')
 -- The next slice opens only the actually captured main-menu New Campaign.
 local campaign_key='tree.child2.child1.child0.child0.child0.child0.child1'
-local function choose_campaign() key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true)) end
+local function choose_campaign() key('script_F2'); assert(says('New Campaign','1 of 22')) end
 start(); choose_campaign(); key('script_F4'); no_dispatch('Campaign first press only arms')
 assert(last():find('New Campaign. Press F4 again',1,true))
 key('script_F4'); assert(#dispatches==1 and dispatches[1]==campaign_key)
@@ -528,7 +534,7 @@ unknown_setup['tree.child2'].Id='fixture_unmapped_setup'
 start(); choose_campaign(); key('script_F4')
 click_hook=function() install_scene(unknown_setup) end
 key('script_F4'); key('script_F2')
-assert(last():find('Unmapped frontend screen. Captured',1,true))
+assert(says('This screen is not supported yet.'))
 assert(not last():find('New Campaign opened',1,true))
 assert(contents('native-ui-graphics-preview.log'):find('activation.result_requires_mapping',1,true))
 assert(not contents('native-ui-graphics-preview.log'):find('activation.observed_result',1,true))
@@ -537,7 +543,7 @@ local _, before_refresh=contents('native-ui-graphics-preview.log'):gsub('capture
 key('script_F2')
 local _, after_refresh=contents('native-ui-graphics-preview.log'):gsub('capture.COMPLETE','')
 assert(after_refresh==before_refresh+1, 'Explicit browse must refresh an unknown panel')
-install_scene(fixture); key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
+install_scene(fixture); key('script_F2'); assert(says('New Campaign','1 of 22'))
 -- Campaign activation retains the same exact validation and cancellation rules.
 for _, prefix in ipairs({'tree','tree.child2',campaign_key}) do
     start(); choose_campaign(); key('script_F4'); nodes[prefix].address=newproxy(); key('script_F4')
@@ -572,51 +578,51 @@ local campaign_fixture=dofile('tests/fixtures/campaign_selection_0_6_0.lua')
 local tooltip_fixture=dofile('tests/fixtures/campaign_selection_tooltip_0_6_0.lua')
 local continue_key='tree.child2.child2.child0'
 local function choose_continue()
-    for i=1,17 do key('script_F2'); if last():find(': Continue, button',1,true) then return end end
+    for i=1,17 do key('script_F2'); if says('Continue, button') then return end end
     error('Continue was not found: '..last())
 end
-local selection_names={'The Eye of the Vortex, campaign choice','Mortal Empires, campaign choice','Continue, button',
+local selection_names={'The Eye of the Vortex, radio button','Mortal Empires, radio button','Continue, button',
     'Campaign description: At the heart of the Elven homeland','Listed race: High Elves','Listed race: Lizardmen',
     'Listed race: Dark Elves','Listed race: Skaven','Listed race: Vampire Coast','Listed race: Tomb Kings',
     'Listed race: The Empire','Listed race: Bretonnia','Listed race: Beastmen Warherds','Listed race: Dwarfs',
-    'Listed race: Greenskins','Listed race: Wood Elves','Return to main menu, use Escape'}
+    'Listed race: Greenskins','Listed race: Wood Elves','Return to main menu, button'}
 for _, layout in ipairs({campaign_fixture,tooltip_fixture}) do
     start(nil,layout)
     for i,name in ipairs(selection_names) do
         key('script_F2')
-        assert(last():find('Campaign selection, '..i..' of 17:',1,true) and last():find(name,1,true),last())
-        if i==1 then assert(last():find('selected',1,true)) end
+        assert(says(i..' of 17') and last():find(name,1,true),last())
+        if i==1 then assert(says('radio button, checked')) end
         if i~=3 then
-            assert(last():find('read only',1,true)); key('script_F4'); key('script_F4'); no_dispatch('Selection information cannot dispatch')
+            assert(not last():find('read only',1,true)); key('script_F4'); key('script_F4'); no_dispatch('Selection information cannot dispatch')
         end
         assert(not last():find('button_campaign_entry',1,true) and not last():find('new_content_icon',1,true))
     end
     local _, captures=contents('native-ui-graphics-preview.log'):gsub('capture.COMPLETE','')
     assert(captures==1,'Campaign list browsing must remain cached')
-    key('script_F2'); assert(last():find('1 of 17: The Eye of the Vortex',1,true))
-    key('script_F3'); assert(last():find('17 of 17:',1,true))
+    key('script_F2'); assert(says('The Eye of the Vortex','1 of 17'))
+    key('script_F3'); assert(says('17 of 17'))
     -- Activating this one captured view button requires both F4 presses.
     start(nil,layout); choose_continue(); key('script_F4'); no_dispatch('Continue first press')
     assert(last():find('Continue. Press F4 again',1,true),last())
     click_hook=function() install_scene(unknown_setup) end
     key('script_F4'); assert(#dispatches==1 and dispatches[1]==continue_key)
-    assert(last():find('not confirmed',1,true))
-    key('script_F2'); assert(last():find('Unmapped frontend screen',1,true))
+    assert(says('activated. Press F2 to read the new screen.'))
+    key('script_F2'); assert(says('This screen is not supported yet.'))
     assert(contents('native-ui-graphics-preview.log'):find('activation.result_requires_mapping\tstring\tContinue:unknown',1,true))
     assert(not contents('native-ui-graphics-preview.log'):find('activation.observed_result',1,true))
     key('script_F4'); key('script_F4'); assert(#dispatches==1,'Unmapped lord/setup controls cannot activate')
 end
 -- New Campaign now has a real observed panel identity for its result.
 start(); choose_campaign(); key('script_F4'); click_hook=function() install_scene(campaign_fixture) end
-key('script_F4'); key('script_F2'); assert(last():find('1 of 17:',1,true))
+key('script_F4'); key('script_F2'); assert(says('1 of 17'))
 assert(contents('native-ui-graphics-preview.log'):find('activation.observed_result\tstring\tNew Campaign',1,true))
 -- Returning with no recreated root/panel still restores the main-menu scope.
-install_scene(fixture); key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
+install_scene(fixture); key('script_F2'); assert(says('New Campaign','1 of 22'))
 -- Cached navigation detects selection and description-title changes.
 start(nil,campaign_fixture); key('script_F2')
 nodes['tree.child2.child0.child1.child0.child1'].data.CurrentState='active'
 nodes['tree.child2.child0.child1.child1.child1'].data.CurrentState='selected'
-key('script_F2'); assert(last():find('1 of 17: The Eye of the Vortex',1,true) and last():find('active',1,true))
+key('script_F2'); assert(says('The Eye of the Vortex, radio button, not checked','1 of 17'))
 choose_continue(); key('script_F4'); key('script_F4'); no_dispatch('Unverified Mortal Empires selection')
 start(nil,campaign_fixture); key('script_F2')
 nodes['tree.child2.child0.child0.child1.child0.child1.child0'].data.GetStateText='Changed title'
@@ -658,8 +664,8 @@ for _, field in ipairs({'Id','Visible','IsInteractive'}) do
     key('script_F4'); no_dispatch('Unexpected extra root child: '..field)
 end
 start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes.tree.data.ChildCount=7; key('script_F4'); no_dispatch('Extra root popup')
-start(nil,tooltip_fixture); nodes['tree.child5'].data.Visible=true; key('script_F2'); assert(last():find('unsupported campaign overlay',1,true)); key('script_F4'); no_dispatch('Visible tooltip/overlay')
-nodes['tree.child5'].data.Visible=false; key('script_F2'); assert(last():find('1 of 17:',1,true))
+start(nil,tooltip_fixture); nodes['tree.child5'].data.Visible=true; key('script_F2'); assert(says('This screen is not supported yet.')); key('script_F4'); no_dispatch('Visible tooltip/overlay')
+nodes['tree.child5'].data.Visible=false; key('script_F2'); assert(says('1 of 17'))
 -- Only observed empty, noninteractive smoke leaves may change visibility.
 local particle='tree.child2.child0.child1.child0.child0.child1.child34'
 start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes[particle].data.Visible=not nodes[particle].data.Visible
@@ -676,17 +682,17 @@ start(nil,campaign_fixture); choose_continue(); key('script_F4')
 nodes['tree.child2.child0.child0.child1.child0.child1.child0'].data.GetStateText='Mortal Empires'; key('script_F4'); no_dispatch('Campaign title changed')
 -- Labels and values must come from native strings; no internal-ID fallback.
 start(nil,campaign_fixture); nodes['tree.child2.child0.child1.child1.child1.child0'].faults.GetStateText='function'
-key('script_F2'); assert(last():find('1 of 16:',1,true))
+key('script_F2'); assert(says('1 of 16'))
 start(nil,campaign_fixture); nodes['tree.child2.child0.child0.child1.child1.child1.child0'].data.Visible=false
-key('script_F2'); assert(last():find('1 of 16:',1,true))
+key('script_F2'); assert(says('1 of 16'))
 start(nil,campaign_fixture); original_match=string.match; string.match=nil
 local campaign_minimal_ok,campaign_minimal_err=pcall(function() for i=1,17 do key('script_F2') end end)
-string.match=original_match; assert(campaign_minimal_ok,campaign_minimal_err); assert(last():find('17 of 17:',1,true))
+string.match=original_match; assert(campaign_minimal_ok,campaign_minimal_err); assert(says('17 of 17'))
 -- Cached selection speech refreshes when visible/enabled Continue or description changes.
 start(nil,campaign_fixture); key('script_F2'); nodes[continue_key].data.CurrentState='inactive'
-choose_continue(); assert(last():find('inactive',1,true))
+choose_continue(); assert(says('unavailable'))
 start(nil,campaign_fixture); key('script_F2'); nodes[continue_key].data.Visible=false
-key('script_F2'); assert(last():find('1 of 16:',1,true))
+key('script_F2'); assert(says('1 of 16'))
 start(nil,campaign_fixture); key('script_F2')
 nodes['tree.child2.child0.child0.child1.child0.child0.child0'].data.GetStateText='Changed native description'
 for i=1,4 do key('script_F2') end
@@ -725,11 +731,11 @@ start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes[continue
 start(); nodes[graphics_key].data.GetTooltipText='\r\n'; choose_graphics(); key('script_F4'); key('script_F4'); no_dispatch('No main-menu text normalization')
 -- Actual returned main has Tooltip child4 and browser child5, not the reverse.
 local returned_main=dofile('tests/fixtures/frontend_menu_tooltip_0_6_1.lua')
-start(nil,returned_main); key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
+start(nil,returned_main); key('script_F2'); assert(says('New Campaign','1 of 22'))
 key('script_F4'); assert(last():find('New Campaign. Press F4 again',1,true),last())
 click_hook=function() install_scene(campaign_fixture) end
 key('script_F4'); assert(#dispatches==1 and dispatches[1]==campaign_key)
-key('script_F2'); assert(last():find('1 of 17:',1,true))
+key('script_F2'); assert(says('1 of 17'))
 assert(contents('native-ui-graphics-preview.log'):find('activation.observed_result\tstring\tNew Campaign',1,true))
 start(nil,returned_main); choose_graphics(); key('script_F4'); key('script_F4'); assert(#dispatches==1 and dispatches[1]==graphics_key)
 -- A caption on a hidden, noninteractive, non-target Tooltip is not control data.
@@ -745,7 +751,7 @@ start(nil,returned_main); choose_campaign(); key('script_F4'); nodes[campaign_ke
 start(nil,returned_main); choose_campaign(); key('script_F4'); nodes.tree.data.ChildCount=7; key('script_F4'); no_dispatch('Returned-main extra popup')
 -- Root-child changes must refresh cached main navigation before arming input.
 start(); key('script_F2'); install_scene(returned_main); key('script_F2')
-assert(last():find('1 of 22: New Campaign',1,true))
+assert(says('New Campaign','1 of 22'))
 assert(contents('native-ui-graphics-preview.log'):find('tree.nodes\tnumber\t87',1,true))
 key('script_F4'); key('script_F4'); assert(#dispatches==1 and dispatches[1]==campaign_key)
 -- Opt-in timer transport exercises the same native handlers, not a keyboard event.
@@ -926,7 +932,7 @@ assert(saw_start)
 status=auto_request('activate'); assert(status[7]=='blocked')
 key('script_F4'); no_dispatch('Start Campaign is read only in lord discovery')
 start(nil,lord_fixture,true); status=auto_request('next')
-assert(status[8]=='lord_discovery' and contents('bridge.jsonl'):find('Lord setup',1,true))
+assert(status[8]=='lord_discovery' and contents('bridge.jsonl'):find('Select Lord.',1,true))
 no_dispatch('F2 lord discovery is read only')
 start(nil,fixture,true); status=auto_request('discover'); assert(status[7]=='blocked')
 assert(contents('native-ui-lord-discovery.jsonl')=='')
@@ -971,8 +977,9 @@ no_dispatch('Keyboard-only discovery paging remains read only')
 -- Labels operate on captured data only; no fresh native field watcher.
 local lord_live=dofile('tests/fixtures/lord_reader_live.lua')
 start(nil,lord_live,true); status=finish_lord_discovery()
--- 34 text entries plus 19 visible lord portraits in this 0.6.14 capture.
-local lord_total=53
+-- 34 text entries plus 19 visible lord portraits in this 0.6.14 capture,
+-- minus the folded check box label/description and two combo box labels.
+local lord_total=49
 assert(status[7]=='discovery-complete' and status[11]==tostring(lord_total))
 local named={}
 for n=1,lord_total do status=auto_request('next'); named[status[10]]=true end
@@ -1040,7 +1047,7 @@ assert(not contents('native-ui-lord-discovery.jsonl'):find('"kind":"stale"',1,tr
 nodes['tree.child2.child0.child2.child0.child4'].data.GetStateText='Synthetic changed lord'
 status=auto_request('next')
 assert(status[7]=='completed' and contents('native-ui-lord-discovery.jsonl'):find('"kind":"stale"',1,true),'Change detected')
-assert(last():find('Lord setup changed. Lord setup, 1 of',1,true),'Change is announced from entry 1')
+assert(says('Screen updated. ',', 1 of'),'Change is announced from entry 1')
 local fresh=false
 for n=1,40 do status=auto_request('next'); if status[10]=='Selected lord: Synthetic changed lord' then fresh=true; break end end
 assert(fresh,'New lord is read after the automatic refresh'); no_dispatch('Manual change refresh is read only')
@@ -1049,7 +1056,7 @@ for n=1,40 do key('script_F2') end
 assert(not contents('native-ui-lord-discovery.jsonl'):find('"kind":"stale"',1,true))
 nodes['tree.child2.child0.child2.child2.child3'].data.Visible=false
 key('script_F3')
-assert(last():find('Lord setup changed. Lord setup, 1 of',1,true),'Hidden watched field restarts from entry 1 even on F3')
+assert(says('Screen updated. ',', 1 of'),'Hidden watched field restarts from entry 1 even on F3')
 assert(not contents('native-ui-graphics-preview.log'):find('navigation.ERROR',1,true))
 no_dispatch('Hidden field refresh is read only')
 -- 0.6.20: a rejected Lord context logs its reason once, without acting.
@@ -1061,7 +1068,7 @@ for _ in contents('native-ui-graphics-preview.log'):gmatch('lord%.context_reject
 assert(rejects==1,'Rejection reason logged once per distinct reason')
 nodes['tree.child4'].data.Visible=false
 key('script_F2')
-assert(last():find('Lord setup',1,true),'Reader resumes once the layer hides')
+assert(says('Select Lord.'),'Reader resumes once the layer hides')
 no_dispatch('Context diagnostics are read only')
 -- 0.6.20 live: selecting a lord leaves a hidden tooltip_campaign_select_lord
 -- root layer; a resting mouse shows Tooltip. Neither may disable the reader.
@@ -1087,29 +1094,29 @@ local function capture_complete() return contents('native-ui-lord-discovery.json
 start(nil,lord_live,false)
 for n=1,lord_total+5 do key('script_F2') end
 assert(capture_complete(),'Capture completes before selection tests')
-assert(browse_to('Lord choice: Teclis'),'Portraits are spoken as lord choices')
+assert(browse_to('Teclis, radio button, not checked'),'Portraits are spoken as lord choices')
 assert(not last():find('read only',1,true),'Lord choices are actionable, not read only')
-key('script_F4'); assert(last():find('Select lord Teclis. Press F4 again within four seconds.',1,true)); no_dispatch('First F4 only arms')
+key('script_F4'); assert(says('Select Teclis. Press F4 again to confirm.')); no_dispatch('First F4 only arms')
 click_hook=function()
     nodes[tyrion_portrait].data.CurrentState='active'; nodes[portrait].data.CurrentState='selected'
     nodes['tree.child2.child0.child2.child0.child4'].data.GetStateText='Teclis'
 end
 key('script_F4'); assert(#dispatches==1 and dispatches[1]==portrait,'Second F4 selects exactly the chosen portrait')
-assert(last():find('Input sent to select Teclis',1,true))
+assert(says('Teclis chosen. Press F2 to read the updated screen.'))
 click_hook=nil
 key('script_F2')
 assert(contents('native-ui-graphics-preview.log'):find('activation.observed_result\tstring\tlord-match:Teclis',1,true),'Selection observed from the fresh capture')
-assert(last():find('Confirmed: Teclis is now the selected lord. Lord setup, 1 of',1,true),'Confirmation spoken with the first fresh entry')
+assert(says('Teclis is now selected. ',', 1 of'),'Confirmation spoken with the first fresh entry')
 -- The selected lord and read-only entries never dispatch.
-assert(browse_to('Lord choice: Teclis, selected'))
-key('script_F4'); assert(last():find('Teclis is already the selected lord. No game action was sent.',1,true))
+assert(browse_to('Teclis, radio button, checked'))
+key('script_F4'); assert(says('Teclis is already selected.'))
 assert(browse_to('Selected lord: Teclis'))
-key('script_F4'); assert(last():find('Lord setup discovery is read only',1,true))
+key('script_F4'); assert(says('Selected lord: Teclis'),'F4 on text is silent')
 assert(#dispatches==1,'No further dispatch')
 -- If the game ignores the click, the fresh capture says so.
 start(nil,lord_live,false)
 for n=1,lord_total+5 do key('script_F2') end
-assert(browse_to('Lord choice: Teclis'))
+assert(browse_to('Teclis, radio button, not checked'))
 key('script_F4'); key('script_F4'); assert(#dispatches==1)
 key('script_F2')
 assert(contents('native-ui-graphics-preview.log'):find('activation.observed_result\tstring\tlord-mismatch:Tyrion',1,true))
@@ -1117,28 +1124,36 @@ assert(last():find('Selection not confirmed: the selected lord is Tyrion.',1,tru
 -- Browsing between F4 presses cancels; expiry and identity changes block.
 start(nil,lord_live,false)
 for n=1,lord_total+5 do key('script_F2') end
-assert(browse_to('Lord choice: Teclis'))
-key('script_F4'); key('script_F3'); assert(browse_to('Lord choice: Teclis'))
+assert(browse_to('Teclis, radio button, not checked'))
+key('script_F4'); key('script_F3'); assert(browse_to('Teclis, radio button, not checked'))
 key('script_F4'); assert(last():find('Press F4 again',1,true),'Browsing cancelled the first confirmation'); no_dispatch('Cancelled confirmation')
 now=now+5
-key('script_F4'); assert(last():find('Confirmation expired',1,true)); no_dispatch('Expired confirmation')
+key('script_F4'); assert(says('Confirmation timed out')); no_dispatch('Expired confirmation')
 key('script_F4'); assert(last():find('Press F4 again',1,true))
 nodes[portrait].data.Id='Teclis impostor'
-key('script_F4'); assert(last():find('Lord choice could not be verified: identity',1,true)); no_dispatch('Changed identity')
+key('script_F4'); assert(says('The screen changed. Press F2 and try again.') and contents('native-ui-graphics-preview.log'):find('activation.lord_unverified\tstring\tidentity',1,true)); no_dispatch('Changed identity')
 -- A changed watched field blocks before arming.
 start(nil,lord_live,false)
 for n=1,lord_total+5 do key('script_F2') end
-assert(browse_to('Lord choice: Teclis'))
+assert(browse_to('Teclis, radio button, not checked'))
 nodes['tree.child2.child0.child2.child2.child1.child3'].data.GetStateText='Synthetic faction'
-key('script_F4'); assert(last():find('Lord setup changed. Browse again. No game action was sent.',1,true)); no_dispatch('Stale capture')
+key('script_F4'); assert(says('The screen changed. Press F2 and try again.')); no_dispatch('Stale capture')
 -- A lord choice from an incomplete capture cannot be selected.
 start(nil,lord_live,false)
 local early=false
 for n=1,200 do
     key('script_F2')
-    if last():find('Lord choice: Teclis',1,true) then early=not capture_complete(); break end
+    if last():find('Teclis, radio button',1,true) then early=not capture_complete(); break end
 end
-if early then key('script_F4'); assert(last():find('Finish reading the lord setup',1,true)); no_dispatch('Incomplete capture') end
+if early then key('script_F4'); assert(says('Still reading this screen')); no_dispatch('Incomplete capture') end
+-- A capture that hit a safety limit cannot be used to choose a lord.
+local limited_layout={}
+for prefix,row in pairs(lord_live) do local copy={}; for k,v in pairs(row) do copy[k]=v end; limited_layout[prefix]=copy end
+limited_layout['tree.child2.child0.child2.child0.child4'].GetStateText=string.rep('x',1200)
+start(nil,limited_layout,false)
+assert(browse_to('Teclis, radio button, not checked'),contents('native-ui-graphics-preview.log'):match('navigation%.ERROR[^\n]*') or last())
+assert(contents('native-ui-lord-discovery.jsonl'):find('"limited":true',1,true))
+key('script_F4'); assert(says('This screen could not be read completely, so choosing is unavailable.'),last()); no_dispatch('Limited capture')
 -- Automation needs two separately accepted requests, like the keyboard.
 start(nil,lord_live,true); status=finish_lord_discovery()
 local choice_key
@@ -1151,5 +1166,64 @@ start(nil,lord_live,true); status=finish_lord_discovery()
 for n=1,lord_total do status=auto_request('next'); if status[10]=='Start Campaign' then break end end
 assert(status[10]=='Start Campaign')
 status=auto_request('activate'); assert(status[7]=='blocked'); no_dispatch('Start Campaign remains blocked')
+-- 0.6.24: NVDA-style speech. Exact announcements pin the format.
+local function spoken() return (last():match('"text":"(.-)"}$') or ''):gsub('\\"','"') end
+local function no_engine_words(text)
+    return not text:find('read only',1,true) and not text:find(', active',1,true) and not text:find('NewState',1,true)
+        and not text:find('Lord choice:',1,true) and not text:find('campaign choice',1,true)
+end
+start()
+assert(contents('bridge.jsonl'):find('Warhammer accessibility ready. F2 and F3 move, F4 activates.',1,true),'Short startup message')
+key('script_F2'); assert(spoken()=='Main menu. New Campaign, button, 1 of 22',spoken())
+key('script_F2'); assert(spoken()=='Continue Campaign, button, unavailable, 2 of 22',spoken())
+key('script_F3'); assert(spoken()=='New Campaign, button, 1 of 22','Screen name is spoken once')
+start(nil,campaign_fixture)
+key('script_F2'); assert(spoken()=='Select Campaign. The Eye of the Vortex, radio button, checked, 1 of 17',spoken())
+key('script_F2'); assert(spoken()=='Mortal Empires, radio button, not checked, 2 of 17',spoken())
+key('script_F2'); assert(spoken()=='Continue, button, 3 of 17',spoken())
+-- Lord setup: roles, states, merged check box, combo boxes, no duplicates.
+start(nil,lord_live,false)
+local heard={}
+for n=1,lord_total+5 do key('script_F2'); local text=spoken(); heard[#heard+1]=text; assert(no_engine_words(text),text) end
+local function heard_exact(pattern)
+    for _,text in ipairs(heard) do if text:match(pattern) then return true end end
+    return false
+end
+assert(heard[1]=='Select Lord. Select Lord, heading, 1 of ' .. lord_total,heard[1])
+assert(heard_exact('^Start Campaign, button, %d+ of 49$'),'Start Campaign is a button')
+assert(heard_exact('^Enable campaign introduction, check box, checked, %d+ of 49, Start the campaign with additional introductory content'),'One check box with its description')
+assert(heard_exact('^Campaign difficulty, combo box, Normal, %d+ of 49$') and heard_exact('^Battle difficulty, combo box, Normal, %d+ of 49$'))
+assert(heard_exact('^Race Attributes, heading, %d+ of 49$') and heard_exact('^Map, tab, selected, %d+ of 49$') and heard_exact('^Movie, tab, %d+ of 49$'))
+assert(heard_exact('^Settings, button, %d+ of 49$') and heard_exact('^Selected lord: Tyrion, %d+ of 49$'))
+assert(heard_exact('^Tyrion, radio button, checked, %d+ of 49$') and heard_exact('^Teclis, radio button, not checked, %d+ of 49$'))
+assert(not heard_exact('^Campaign, %d+ of') and not heard_exact('^Battle, %d+ of') and not heard_exact('^Enable campaign introduction, %d+ of'),'No repeated labels')
+-- F4 on a button the mod does not support says so; F4 on text stays silent.
+assert(browse_to('Start Campaign, button'))
+key('script_F4'); assert(spoken()=='Not supported yet.'); no_dispatch('Start Campaign blocked')
+assert(browse_to('Selected lord: Tyrion'))
+key('script_F4'); assert(spoken():find('Selected lord: Tyrion',1,true)==1,'F4 on text is silent'); no_dispatch('Text is not actionable')
+-- Many automatic refreshes in one session never exhaust the discovery log.
+start(nil,lord_live,false)
+key('script_F2')
+for n=1,80 do
+    nodes['tree.child2.child0.child2.child0.child4'].data.GetStateText=(n%2==0) and 'Tyrion' or 'Teclis'
+    key('script_F2')
+end
+assert(not contents('native-ui-graphics-preview.log'):find('navigation.ERROR',1,true),'Refreshes keep working')
+assert(says('Screen updated. '),last())
+no_dispatch('Refresh loop is read only')
+-- 0.6.25 live: a resting mouse leaves a portrait in "hover"; it stays listed
+-- and choosable, and refusals name their reason in the log.
+local hover_layout={}
+for prefix,row in pairs(lord_live) do local copy={}; for k,v in pairs(row) do copy[k]=v end; hover_layout[prefix]=copy end
+hover_layout[portrait].CurrentState='hover'
+start(nil,hover_layout,false)
+assert(browse_to('Teclis, radio button, not checked'),'Hovered portrait is still listed')
+key('script_F4'); key('script_F4'); assert(#dispatches==1 and dispatches[1]==portrait,'Hovered portrait can be chosen')
+start(nil,lord_live,false)
+assert(browse_to('Teclis, radio button, not checked'))
+nodes[portrait].data.CurrentState='down'
+key('script_F4'); assert(says('The screen changed. Press F2 and try again.'))
+assert(contents('native-ui-graphics-preview.log'):find('activation.lord_blocked\tstring\tstate:down',1,true)); no_dispatch('Pressed state blocks')
 io=real_io; os.time=real_time; os.date=real_date
 print('PASS: '..scenarios..' frontend scenarios; 86-node/22-control capture, cached wraparound, four allowlisted frontend targets and observed-result checks, confirmations, stale identities, native failures, template/panel changes, lifecycle, clocks and blocked game contexts')
