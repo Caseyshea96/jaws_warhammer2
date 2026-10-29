@@ -33,3 +33,27 @@ No saves written. Evidence: `work/live-0.6.38-campaign-buttons`,
 `work/live-0.6.39-campaign-buttons`.
 
 Not verified: End Turn live (deliberately not pressed), physical keys.
+
+## 0.6.40: dialogs, live advisor text, End Turn attempt (live)
+
+- After an automatic re-read, the reader starts at the new panel's heading or
+  text rather than its first button. Live: dismissing How They Play →
+  "Screen updated." "Mission Issued!, heading, 34 of 57".
+- Advisor (`Text`) and notification (`dy_notification`) lines are re-checked
+  every second and spoken when they change ("Advisor: …"), like a live
+  region. Covered by the harness; the advisor line did not change during the
+  live runs.
+- The developer three-capture cap now applies only to explicit client
+  requests; automatic re-reads do not count.
+- End Turn, live: with the tutorial on, the game keeps End Turn and Skip
+  inactive until tutorial objectives are done — the reader said "End turn is
+  unavailable." and sent nothing. Without the tutorial (intro check box
+  cleared by a test mouse click), after dismissing How They Play and Mission
+  Issued!, End Turn asked for confirmation and the click was sent three times
+  ("End turn activated."). The first press made the game select the unmoved
+  lord (announced: "Screen updated." "Tyrion Legendary Lord, 12 of 92 …").
+  The turn still did not advance (treasury unchanged), most likely because of
+  the pending "Lord not moved" notification or a dialog not yet identified.
+  Unresolved; no saves written.
+- Harness: 40 campaign scenarios.
+Evidence: `work/live-0.6.40-endturn`, `work/live-0.6.40-endturn-notutorial`.

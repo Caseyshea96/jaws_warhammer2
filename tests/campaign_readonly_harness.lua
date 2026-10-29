@@ -293,5 +293,20 @@ begin(); for n=1,12 do tick(1) end
 press(1); nodes['tree.child0.child0'].id='button_other'
 fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==0 and said()=='The screen changed. Reading it again.',said())
 assert(contents('native-ui-campaign-discovery.jsonl'):find('"kind":"activation-blocked","reason":"identity"',1,true))
+-- 0.6.40: a new dialog starts at its title/text; advisor text is announced live.
+local make=start('campaign',nil,2)
+local advisor=nodes['tree.child0.child0']; advisor.id='Text'; advisor.label='First advice.'
+begin(); for n=1,12 do tick(1) end
+advisor.label='Second advice.'; tick(1)
+assert(contents('bridge.jsonl'):find('Advisor: Second advice.',1,true),contents('bridge.jsonl'))
+local quiet=contents('bridge.jsonl'); tick(3); assert(contents('bridge.jsonl')==quiet,'Unchanged text is not repeated')
+local dialog=make('tree.child4','mission_dialog',3,'',true); nodes.tree.count=5
+make('tree.child4.child0','button_next',0,'Next')
+make('tree.child4.child1','dy_title',0,'Mission Issued!')
+make('tree.child4.child2','description',0,'Research a technology.')
+for n=1,14 do tick(1) end
+local after=contents('bridge.jsonl'):match('Screen updated%.".-"text":"([^"]*)"')
+assert(after and after:find("Mission Issued!, heading",1,true)==1,contents("bridge.jsonl"):sub(-700))
+assert(dispatches==0)
 io=saved_io;os.date=saved_date
 print('PASS: ' .. scenarios .. ' campaign diagnostic scenarios; HUD readiness, scoped discovery, typed failures, capture protocol, replay/generation/lease guards, limits, cancellation and zero clicks')

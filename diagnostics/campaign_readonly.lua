@@ -26,7 +26,7 @@ local initial,owner,expiry,mode=read_flag()
 local diagnostic=initial~=nil
 if not diagnostic then owner,expiry,mode='player','9999-12-31T23:59:59Z','player' end
 local session='campaign:' .. owner .. ':' .. tostring({})
-local version='0.6.39'
+local version='0.6.40'
 local sequence,generation,bytes,run,attempts=0,1,0,0,0
 local phase,result,last_request='initialising','ready',''
 local queue,head,visited,page,entries,index={},1,0,0,{},0
@@ -42,6 +42,7 @@ local reported_limits={}
 local publish_status,request_capture
 local captured_signature,previous_keys,refresh_announce,changed_ticks,last_signature=nil,{},false,0,nil
 local verified_reader=false
+local client_captures=0
 local auto_reader=false -- verify-mode HUD reading keeps the one-second pace
 local function quoted(value)
     return '"' .. tostring(value):gsub('[%z\1-\31\\"]',function(c)
@@ -337,8 +338,15 @@ local function page_read()
         if refresh_announce then
             -- Like focus moving into a newly opened dialog: start at the first new item.
             refresh_announce=false
-            local found
-            for position,entry in ipairs(entries) do if not previous_keys[entry.key] then found=position;break end end
+            local found,first_new
+            for position,entry in ipairs(entries) do
+                if not previous_keys[entry.key] then
+                    first_new=first_new or position
+                    local role=role_of(entry.id)
+                    if role==nil or role=='heading' then found=position;break end
+                end
+            end
+            found=found or first_new
             speak('Screen updated.')
             index=found and found-1 or 0
         else
@@ -348,7 +356,10 @@ local function page_read()
     end
 end
 request_capture=function(source)
-    if diagnostic and attempts>=3 then result='capture-limit';return false end
+    -- The three-capture cap guards the developer client's explicit requests;
+    -- automatic re-reads after screen changes do not count against it.
+    if diagnostic and source=='read-only-client' and client_captures>=3 then result='capture-limit';return false end
+    if source=='read-only-client' or source=='first-tick' then client_captures=client_captures+1 end
     -- Players can re-read for a whole session: start the log over when large.
     if not diagnostic and bytes>1048576 then bytes=0 end
     attempts=attempts+1;generation=generation+1;phase='waiting';result='accepted'
@@ -500,6 +511,27 @@ local function poll_keys()
     end
     if newest>keys_seq then keys_seq=newest end
 end
+local live_ids={Text='Advisor: ',dy_notification=''}
+local function watch_live_text()
+    if not finished then return end
+    local context=hud_context()
+    if not context or context.root_address~=root_identity or context.layout_address~=layout_identity then return end
+    for _,entry in ipairs(entries) do
+        local prefix=live_ids[entry.id]
+        if prefix and entry.path then
+            local node=resolve(context.root,entry.path,entry.ids or {})
+            if node then
+                local ok,raw=read(function() local v=node:GetStateText(); return v end)
+                local now=ok and type(raw)=='string' and clean(bounded(raw,4000)) or ''
+                if now~='' and now~=entry.name then
+                    entry.name=now
+                    emit('{"kind":"live-text","id":' .. quoted(entry.id) .. '}')
+                    speak(prefix .. now)
+                end
+            end
+        end
+    end
+end
 local function tick()
     if not polling then return end
     local ok,err=pcall(function()
@@ -515,6 +547,7 @@ local function tick()
                 -- Players get a re-read in about three seconds; the developer mode keeps one page a second.
                 for _=1,(diagnostic and 1 or 3) do if phase=='scanning' then page_read() end end
             end
+            if phase=='ready' or phase=='limited' then watch_live_text() end
             -- Re-read automatically when the visible panels change and settle.
             if phase=='ready' or phase=='limited' or phase=='cancelled' then
                 local context=phase~='cancelled' and hud_context() or nil
