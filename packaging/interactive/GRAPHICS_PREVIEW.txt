@@ -30,7 +30,10 @@ WHAT WORKS
   difficulty changes.
 - Graphics and Advanced graphics are read; their settings cannot be changed.
 - Start Campaign asks first ("Start the campaign as Tyrion, ...? Press Enter
-  again to start."); moving away cancels. The campaign map is not read yet.
+  again to start."); moving away cancels.
+- Campaign map: the HUD is read when the map appears. Shift+F2 switches HUD
+  reading on (arrows, Home/End and letters read items) and off (arrows move
+  the camera). Shift+F3 reads the screen again. Nothing can be activated yet.
 - Other buttons say "Not supported yet."
 
 OPTIONS

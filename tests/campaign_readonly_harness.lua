@@ -40,7 +40,7 @@ local function start(context,flag,count)
         remove_listener=function(_,name) listeners[name]=nil end,
         add_ui_destroyed_callback=function(_,callback) destroyed=callback end}
     cm=setmetatable({},{__index=function() error('Model-timer/query path must not be used') end})
-    real_timer={register_singleshot=function(name,delay) assert(name==timer and delay==1000);pending=true end,
+    real_timer={register_singleshot=function(name,delay) assert(name==timer and (delay==1000 or delay==100));pending=true end,
         unregister=function(name) assert(name==timer);pending=false end}
     UIComponent=function(value) assert(type(value)=='table');return value end
     os.date=function(format) assert(format=='!%Y-%m-%dT%H:%M:%SZ');return clock end
@@ -85,13 +85,15 @@ local function capture_request(token,which_owner,which_session,generation,expire
 end
 for _,context in ipairs({'frontend','battle'}) do start(context,valid);assert(next(listeners)==nil and contents('bridge.jsonl')=='') end
 for _,flag in ipairs({'','bad',valid:gsub('18:30:00','17:59:59'),valid:gsub('\n$',''),valid:gsub('verify','activate')}) do
-    start('campaign',flag);assert(next(listeners)==nil,'Invalid/expired flag must not create listeners')
+    start('campaign',flag);assert(next(listeners)~=nil,'Without a valid flag the player reader starts')
+    begin();tick(6);assert(status()=='','Player mode publishes no diagnostic status')
 end
 start('campaign',valid);begin();finish()
 assert(status():find('"complete":true',1,true));assert(status():find('"count":4',1,true))
 assert(contents('native-ui-campaign-discovery.jsonl'):find('"physical_keys_verified":false',1,true))
 fire('ShortcutTriggered',{string='script_F3'});assert(contents('bridge.jsonl'):find('Item 2, 4 of 4',1,true),contents('bridge.jsonl'))
 fire('ShortcutTriggered',{string='script_F4'});assert(dispatches==0)
+tick(2);assert(contents('reader-state.tsv'):find('\t1\tcampaign\n',1,true),'Verify mode turns HUD reading on for live key tests')
 -- The exact early-scan regression: no text getters while HUD is hidden or bars visible.
 start('campaign',valid);nodes['tree.child0'].visible=false;nodes['tree.child1'].visible=true
 nodes['tree.child2'].faults.GetStateText='throw';begin();tick(8)
@@ -192,5 +194,38 @@ assert(heard:find('End turn, button, ',1,true) and heard:find('Dismiss all advic
 assert(heard:find('Missions, heading, 1, ',1,true) and heard:find('Unresolved events, 2, ',1,true),heard)
 assert(not heard:find('"(, ',1,true) and not heard:find('"text":"(',1,true) and not heard:find('"text":")',1,true),'No bracket items')
 assert(status():find('"count":5',1,true),status())
+-- 0.6.34: player reader (no flag) and HUD reading mode with companion keys.
+start('campaign',nil)
+begin()
+for n=1,12 do tick(1) end
+local heard=contents('bridge.jsonl')
+assert(heard:find('Campaign map, 4 items.',1,true),heard)
+assert(status()=='' and contents('campaign-discovery-request.tsv')=='','No diagnostic channel for players')
+fire('ShortcutTriggered',{string='script_shift_F2'})
+assert(contents('reader-state.tsv'):find('\t1\tcampaign\n',1,true),contents('reader-state.tsv'))
+assert(contents('bridge.jsonl'):find('Reading HUD.',1,true))
+local session=contents('reader-state.tsv'):match('^WH2READER1\t([^\t]+)\t')
+local seq=0
+local function keys(owner_id,actions)
+    local lines={'WH2KEYS1\t' .. owner_id .. '\t' .. session .. '\t1'}
+    for _,action in ipairs(actions) do seq=seq+1; lines[#lines+1]=seq .. '\t' .. action end
+    files[prefix .. 'keys.tsv']=table.concat(lines,'\n') .. '\n'
+    tick(1)
+end
+local function last_text() return (contents('bridge.jsonl'):match('"text":"([^"]*)"}\n$')) end
+keys('companion',{'next'}); local before=last_text()
+keys('companion',{'next'}); assert(last_text():find(', 2 of 4',1,true),last_text())
+keys('companion',{'last'}); assert(last_text():find(', 4 of 4',1,true),last_text())
+keys('companion',{'first'}); assert(last_text():find(', 1 of 4',1,true),last_text())
+keys('companion',{'letter:i'}); assert(last_text():find('Item ',1,true)==1,last_text())
+keys('companion',{'activate'}); assert(last_text()=='Not supported yet.' and dispatches==0)
+keys('companion',{'next'},'other-session')
+fire('ShortcutTriggered',{string='script_shift_F2'})
+assert(contents('reader-state.tsv'):find('\t0\tcampaign\n',1,true) and last_text()=='Map controls.')
+local quiet=contents('bridge.jsonl')
+keys('companion',{'next','next'}); assert(contents('bridge.jsonl')==quiet,'Keys are ignored while HUD reading is off')
+fire('ShortcutTriggered',{string='script_shift_F3'}); for n=1,10 do tick(1) end
+assert(select(2,contents('bridge.jsonl'):gsub('Campaign map, 4 items.',''))==2,'Shift+F3 reads the screen again')
+assert(dispatches==0)
 io=saved_io;os.date=saved_date
 print('PASS: ' .. scenarios .. ' campaign diagnostic scenarios; HUD readiness, scoped discovery, typed failures, capture protocol, replay/generation/lease guards, limits, cancellation and zero clicks')

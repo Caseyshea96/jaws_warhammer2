@@ -25,7 +25,8 @@ lua.lua_tolstring.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctyp
 lua.lua_tolstring.restype = ctypes.c_char_p
 lua.lua_close.argtypes = [ctypes.c_void_p]
 campaign_source = (root / 'diagnostics/campaign_readonly.lua').read_text(encoding='utf-8')
-for forbidden in ['string.find', ':find(', 'SimulateLClick', 'trigger_shortcut', 'reader-state.tsv', 'keys.tsv', 'cm:']:
+# HUD reading mode (owner-approved toggle, 0.6.34) shares reader-state.tsv and keys.tsv with the menu keys.
+for forbidden in ['string.find', ':find(', 'SimulateLClick', 'trigger_shortcut', 'cm:']:
     assert forbidden not in campaign_source, f'Campaign discovery cannot use {forbidden}'
 for filename, execute in [('diagnostics/graphics_preview.lua', False), ('tests/graphics_preview_harness.lua', True),
                           ('diagnostics/campaign_readonly.lua', False), ('tests/campaign_readonly_harness.lua', True)]:

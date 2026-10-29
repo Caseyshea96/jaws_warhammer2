@@ -1,4 +1,6 @@
--- Opt-in HUD/dialog discovery. This module never queries the model or sends game commands.
+-- Read-only campaign HUD reader. Players get it without a flag; the developer
+-- flag adds the status/request channel and its limits. Never queries the
+-- model or sends game commands.
 if not core:is_campaign() or core:is_battle() then return end
 local base=os.getenv('LOCALAPPDATA')
 if type(base)~='string' or base=='' then return end
@@ -21,9 +23,10 @@ local function read_flag()
     return raw,owner,expires,mode
 end
 local initial,owner,expiry,mode=read_flag()
-if not initial then return end
+local diagnostic=initial~=nil
+if not diagnostic then owner,expiry,mode='player','9999-12-31T23:59:59Z','player' end
 local session='campaign:' .. owner .. ':' .. tostring({})
-local version='0.6.33'
+local version='0.6.35'
 local sequence,generation,bytes,run,attempts=0,1,0,0,0
 local phase,result,last_request='initialising','ready',''
 local queue,head,visited,page,entries,index={},1,0,0,{},0
@@ -37,6 +40,8 @@ local request_count=0
 local last_request_raw,last_readiness
 local reported_limits={}
 local publish_status,request_capture
+local verified_reader=false
+local auto_reader=false -- verify-mode HUD reading keeps the one-second pace
 local function quoted(value)
     return '"' .. tostring(value):gsub('[%z\1-\31\\"]',function(c)
         return string.format('\\u%04x',string.byte(c))
@@ -70,7 +75,10 @@ local function identity(node)
     local ok,address=read(function() local v=node:Address(); return v end)
     if ok and (type(address)=='userdata' or type(address)=='string') then return tostring(address) end
 end
-local function lease_active() return core:is_campaign() and read_flag()==initial end
+local function lease_active()
+    if not diagnostic then return core:is_campaign() end
+    return core:is_campaign() and read_flag()==initial
+end
 local function clean(value)
     return value:gsub('%[%[.-%]%]',' '):gsub('<[^>]*>',' '):gsub('[%z\1-\31]',' ')
         :gsub('%s+',' '):gsub('^%s+',''):gsub('%s+$','')
@@ -181,6 +189,7 @@ local function verify_reader()
     assert(browse(-1,true)==entries[#entries].key,'Previous wrap failed')
     emit('{"kind":"reader-verification","run":' .. run .. ',"passed":true,"entries":' .. #entries .. ',"source":"native-self-test","physical_keys_verified":false}')
     index=0
+    verified_reader=true -- developer verify mode then turns HUD reading on (Shift+F2 cannot be injected)
 end
 -- Labels for HUD elements whose own text is only a value or whose tooltip is
 -- a warning rather than a name (from the 0.6.32 live capture).
@@ -289,7 +298,9 @@ local function page_read()
     end
 end
 request_capture=function(source)
-    if attempts>=3 then result='capture-limit';return false end
+    if diagnostic and attempts>=3 then result='capture-limit';return false end
+    -- Players can re-read for a whole session: start the log over when large.
+    if not diagnostic and bytes>1048576 then bytes=0 end
     attempts=attempts+1;generation=generation+1;phase='waiting';result='accepted'
     entries={};queue={};index=0;head=1;visited=0;page=0;errors=0;limited=false;finished=false
     waiting_ticks=0;stable_ticks=0;stable_identity=nil;last_readiness=nil;reported_limits={}
@@ -316,6 +327,7 @@ local function waiting_step()
     if waiting_ticks>=180 then phase='waiting-timeout';result='hud-timeout';emit('{"kind":"timeout","generation":' .. generation .. ',"reason":"hud-not-ready"}') end
 end
 publish_status=function()
+    if not diagnostic then return end
     local item=entries[index]
     local line='{"protocol":"WH2CAMSTATUS1","version":' .. quoted(version) .. ',"owner":' .. quoted(owner)
         .. ',"session":' .. quoted(session) .. ',"generation":' .. generation .. ',"phase":' .. quoted(phase)
@@ -327,6 +339,7 @@ publish_status=function()
     local written=f:write(line);local closed=f:close();if not written or closed==nil then error('Campaign status write failed') end
 end
 local function read_request()
+    if not diagnostic then return end
     local raw=read_file('campaign-discovery-request.tsv',513)
     if type(raw)~='string' or #raw>512 or raw==last_request_raw then return end
     last_request_raw=raw
@@ -343,15 +356,85 @@ local function stop(reason)
     if real_timer then pcall(function() real_timer.unregister(timer_name) end) end
     core:remove_listener(timer_name)
 end
+-- HUD reading mode (Shift+F2), like a screen reader's browse mode: while on,
+-- the companion's standard keys (arrows, Home/End, letters, Enter) read HUD
+-- items; while off, they stay with the game (arrows move the camera).
+local reader_mode=false
+local keys_owner,keys_seq,state_line,state_ticks,fast_ticks=nil,0,nil,0,0
+local function publish_reader_state(force)
+    local line='WH2READER1\t' .. session .. '\t' .. generation .. '\t' .. (reader_mode and '1' or '0') .. '\tcampaign\n'
+    state_ticks=state_ticks+1
+    -- The companion needs a heartbeat under 3 s old: about every second.
+    if not force and line==state_line and state_ticks<((reader_mode and auto_reader) and 1 or 10) then return end
+    state_ticks=0
+    local f=io.open(base .. 'reader-state.tsv','w'); if not f then return end
+    f:write(line); f:close(); state_line=line
+end
+local function speak_current()
+    if not finished then
+        if phase~='waiting' and phase~='scanning' then request_capture('keyboard') end
+        return
+    end
+    browse(index==0 and 1 or 0,false)
+end
+local function key_action(action)
+    if action=='next' or action=='previous' then
+        if finished then browse(action=='next' and 1 or -1,false) else speak_current() end
+    elseif action=='first' or action=='last' then
+        if finished then index=0; browse(action=='first' and 1 or -1,false) else speak_current() end
+    elseif action=='activate' then speak('Not supported yet.')
+    elseif #action==8 and action:sub(1,7)=='letter:' then
+        if not finished or #entries==0 then speak_current(); return end
+        local letter=action:sub(8,8)
+        for offset=1,#entries do
+            local candidate=((index-1+offset)%#entries)+1
+            if string.lower(entries[candidate].name:sub(1,1))==letter then index=candidate-1; browse(1,false); return end
+        end
+    end
+end
+local function poll_keys()
+    local raw=read_file('keys.tsv',4097)
+    if type(raw)~='string' or #raw>4096 then return end
+    local lines={}
+    for line in raw:gmatch('([^\n]*)\n') do lines[#lines+1]=line end
+    local header_owner,header_session=(lines[1] or ''):match('^WH2KEYS1\t([^\t]+)\t([^\t]+)\t[^\t]+$')
+    if not header_owner then return end
+    local events,newest={},0
+    for position=2,math.min(#lines,33) do
+        local number,action=lines[position]:match('^(%d+)\t([a-z:]+)$')
+        number=tonumber(number)
+        if number then events[#events+1]={seq=number,action=action}; if number>newest then newest=number end end
+    end
+    if header_owner~=keys_owner then keys_owner,keys_seq=header_owner,newest; return end -- skip any backlog
+    if header_session~=session then keys_seq=math.max(keys_seq,newest); return end
+    table.sort(events,function(a,b) return a.seq<b.seq end)
+    local handled=0
+    for _,event in ipairs(events) do
+        if event.seq>keys_seq and handled<8 then keys_seq=event.seq; handled=handled+1; key_action(event.action) end
+    end
+    if newest>keys_seq then keys_seq=newest end
+end
 local function tick()
     if not polling then return end
     local ok,err=pcall(function()
-        ticks=ticks+1
-        if not lease_active() or ticks>1800 then stop('lease-ended');publish_status();return end
-        read_request()
-        if phase=='waiting' then waiting_step() elseif phase=='scanning' then page_read() end
-        publish_status()
-        if polling then real_timer.register_singleshot(timer_name,1000) end
+        -- Capture work keeps its one-second pace; keys are polled every 100 ms
+        -- while HUD reading is on.
+        fast_ticks=fast_ticks+1
+        if not reader_mode or auto_reader or fast_ticks>=10 then
+            fast_ticks=0
+            ticks=ticks+1
+            if not lease_active() or (diagnostic and ticks>1800) then stop('lease-ended');publish_status();return end
+            read_request()
+            if phase=='waiting' then waiting_step() elseif phase=='scanning' then page_read() end
+            publish_status()
+        end
+        if verified_reader and not reader_mode then
+            verified_reader=false; reader_mode=true; auto_reader=true; keys_owner=nil
+            emit('{"kind":"reader-mode","on":true,"source":"verify-flag"}'); publish_reader_state(true)
+        end
+        if reader_mode then poll_keys() end
+        publish_reader_state(false)
+        if polling then real_timer.register_singleshot(timer_name,(reader_mode and not auto_reader) and 100 or 1000) end
     end)
     if not ok then
         stop('diagnostic-error');phase='error'
@@ -372,10 +455,19 @@ end,false)
 core:add_ui_destroyed_callback(function() if polling then cancel('ui-destroyed');publish_status() end end)
 core:add_listener('warhammer_campaign_readonly_keys','ShortcutTriggered',function(c)
     return c.string=='script_F2' or c.string=='script_F3' or c.string=='script_F4'
+        or c.string=='script_shift_F2' or c.string=='script_shift_F3'
 end,function(c)
     if not lease_active() then return end
     local ok,err=pcall(function()
-        if c.string=='script_F4' then speak('Not supported yet.')
+        if c.string=='script_shift_F2' then
+            reader_mode=not reader_mode; auto_reader=false; keys_owner=nil -- a fresh mode never replays old keys
+            publish_reader_state(true)
+            speak(reader_mode and 'Reading HUD.' or 'Map controls.')
+            if reader_mode then speak_current() end
+            if polling then pcall(function() real_timer.unregister(timer_name); real_timer.register_singleshot(timer_name,reader_mode and 100 or 1000) end) end
+        elseif c.string=='script_shift_F3' then
+            if phase~='waiting' and phase~='scanning' then request_capture('keyboard-refresh') end
+        elseif c.string=='script_F4' then speak('Not supported yet.')
         elseif finished then browse(c.string=='script_F2' and 1 or -1,false)
         elseif phase~='waiting' and phase~='scanning' then request_capture('keyboard') end
         publish_status()
