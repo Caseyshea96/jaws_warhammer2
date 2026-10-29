@@ -24,12 +24,12 @@ left intact. Paths like `work/live-0.6.17-lord-discovery` in the docs resolve he
 ## Current state — read before working
 
 - `docs/AUTOMATION_SESSION.md` — full session history and current stop point.
-- `docs/LORD_READER_0_6_18_TEST.md` — latest live result (0.6.18 passed) and
-  the confirmed `string.find` root cause.
+- `docs/LORD_REFRESH_0_6_21_TEST.md` — latest live result (automatic refresh).
+- `docs/LORD_READER_0_6_18_TEST.md` — the confirmed `string.find` root cause.
 - `docs/FRONTEND_AUTOMATION.md` — the opt-in automation channel protocol.
 
-Accepted build: **0.6.18** (installed, in source and packaging). 0.6.14 is the
-previous good build; 0.6.15–0.6.17 are failed candidates — never deploy them.
+Accepted build: **0.6.21** (installed, in source and packaging). 0.6.18 and
+0.6.14 are previous good builds; 0.6.15–0.6.17 are failed candidates — never deploy them.
 
 **Never call `string.find` in the runtime.** In WH2 the plain form returns nil
 for a match and then makes `string.sub` return numbers (confirmed live). Use
@@ -58,6 +58,9 @@ PID, waits for endpoint) → `Capture-Screen` (confirm main menu) → `Reach-Lor
 → `Capture-Screen` (confirm Select Lord) → `Test-LordReader` → `Stop-Session`
 (revoke lease, copy evidence, close only owned processes).
 `Start-Session -StringFindProbe` runs the string.find probe (separate launch).
+`Click-Screen -X -Y [-MoveOnly]` stands in for a user's mouse (physical pixels =
+Capture-Screen pixels x2). Never click Start Campaign or the intro-content
+notice's confirm button, which overlaps it.
 The owner approved direct launch (`-Direct`) instead of clicking PLAY in TWMM.
 
 ## Driving the game
@@ -125,7 +128,7 @@ authorized scope.
 - Verify each major transition before continuing.
 - Never repeatedly click a control without checking the resulting state.
 - If the same launch step fails twice, investigate rather than retrying blindly.
-- Preserve the last known working build (0.6.18; before it 0.6.14) as the rollback.
+- Preserve the last known working build (0.6.21; before it 0.6.18) as the rollback.
 - Do not delete game saves or unrelated configuration files.
 - Distinguish launcher failures, mod-loading failures, game crashes, and
   accessibility integration failures.

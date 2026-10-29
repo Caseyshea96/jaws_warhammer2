@@ -333,3 +333,12 @@ graceful shutdown). A separate probe launch confirmed that WH2's plain
 return numbers — the cause of every 0.6.15–0.6.17 failure. Never call
 `string.find` in the runtime. 0.6.18 is installed and is the accepted build.
 Details: LORD_READER_0_6_18_TEST.md. Live scripts: tools/live/.
+
+## 0.6.21 — automatic Lord setup refresh (October 29)
+
+Watched named fields restart discovery after a manual change ("Lord setup
+changed."), verified live by switching Tyrion → Teclis → Tyrion with test mouse
+clicks. 0.6.19 exposed that any mouse selection disabled the reader (hidden
+`tooltip_campaign_select_lord` root layer); 0.6.20 logged the reason; 0.6.21
+accepts tooltip layers. 0.6.21 is installed and accepted. Details:
+LORD_REFRESH_0_6_21_TEST.md.

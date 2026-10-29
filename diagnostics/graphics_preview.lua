@@ -38,12 +38,13 @@ local pending, scan_active, scan_valid = nil, false, false
 local scan_nodes, scan_parts, scan_reads = {}, {}, {}
 local snapshot_node_count = 0
 local lord_discovery
+local announce_prefix = ''
 local screen_kind, awaiting_result = 'unknown', nil
 local function cancel() pending = nil end
 local function invalidate()
     interaction_revision = interaction_revision + 1
     cancel(); controls, control_index = {}, 0
-    lord_discovery=nil
+    lord_discovery=nil; announce_prefix=''
     captured, browse_snapshot = false, nil
     screen_kind = 'unknown'
 end
@@ -338,7 +339,7 @@ for _, base in ipairs(bases) do
     local path = base .. 'native-ui-graphics-preview.log'
     local f = io.open(path, 'w')
     if f then
-        local header = 'WH2 native UI diagnostic 0.6.18-nvda-automation-preview\n'
+        local header = 'WH2 native UI diagnostic 0.6.21-nvda-automation-preview\n'
         f:write(header); f:close(); log_bytes = #header + 1
         log_path = path; bridge_path = base .. (base == '' and 'jaws_access.jsonl' or 'bridge.jsonl')
         local bridge = io.open(bridge_path, 'w'); if bridge then bridge:close() end
@@ -849,7 +850,8 @@ local function announce_control(step)
     if screen_kind=='lord_discovery' then item.raw_name=item.raw_name or item.name; item.name=lord_spoken_name(item) end
     local state = item.state ~= '' and (', ' .. item.state) or ''
     local context = screen_kind == 'lord_discovery' and 'Lord setup' or screen_kind == 'campaign_selection' and 'Campaign selection' or screen_kind == 'graphics_advanced' and 'Advanced graphics' or (screen_kind == 'graphics' and 'Graphics settings' or 'Controls')
-    speak(context .. ', ' .. control_index .. ' of ' .. #controls .. ': ' .. item.name .. (item.read_only and ', read only' or '') .. state .. '.')
+    local prefix=announce_prefix; announce_prefix=''
+    speak(prefix .. context .. ', ' .. control_index .. ' of ' .. #controls .. ': ' .. item.name .. (item.read_only and ', read only' or '') .. state .. '.')
 end
 local graphics_key = 'tree.child2.child1.child0.child0.child2.child0.child1'
 local graphics_path = {
@@ -1183,38 +1185,57 @@ local function lord_identity(value)
     if kind=='userdata' or (kind=='string' and value~='') then return tostring(value) end
     return nil
 end
+-- Log why the Lord context was rejected, once per distinct reason, so a
+-- screen the reader refuses (overlay, tooltip, changed layout) is diagnosable.
+local lord_last_reject
+local function lord_reject(reason)
+    if reason~=lord_last_reject then lord_last_reject=reason; plain_log('lord.context_reject',reason) end
+    return nil
+end
 local function lord_context()
     if not core:is_frontend() or not core:is_ui_created() then return nil end
     local ok,root=lord_read(function() local v=core:get_ui_root(); return v end)
-    if not ok or not root then return nil end
+    if not ok or not root then return lord_reject('root-unavailable') end
     local _,id=lord_read(function() local v=root:Id(); return v end)
     local _,visible=lord_read(function() local v=root:Visible(true); return v end)
     local _,count=lord_read(function() local v=root:ChildCount(); return v end)
-    if id~='root' or visible~=true or (count~=5 and count~=6) then return nil end
+    if id~='root' or visible~=true or type(count)~='number' or count<5 or count>8 then
+        return lord_reject('root id=' .. tostring(id) .. ' visible=' .. tostring(visible) .. ' count=' .. tostring(count))
+    end
     local browsers=0
     for index=4,count-1 do
         local _,extra_address=lord_read(function() local v=root:Find(index); return v end)
-        if not extra_address then return nil end
+        if not extra_address then return lord_reject('extra ' .. index .. ' missing') end
         local extra_ok,extra=lord_read(function() local v=UIComponent(extra_address); return v end)
-        if not extra_ok or not extra then return nil end
+        if not extra_ok or not extra then return lord_reject('extra ' .. index .. ' unconvertible') end
         local _,extra_id=lord_read(function() local v=extra:Id(); return v end)
         local _,extra_visible=lord_read(function() local v=extra:Visible(true); return v end)
-        if extra_visible~=false or (extra_id~='browser' and extra_id~='Tooltip') then return nil end
+        -- Hover tooltips are non-interactive text layers; selecting a lord
+        -- leaves a hidden tooltip_campaign_select_lord at the root (seen
+        -- live in 0.6.20). Accept tooltip layers shown or hidden on this
+        -- read-only path; the browser must stay hidden; reject anything else.
+        local tooltip=extra_id=='Tooltip' or starts_with(extra_id,'tooltip_')
+        if not tooltip and (extra_visible~=false or extra_id~='browser') then
+            return lord_reject('extra ' .. index .. ' id=' .. tostring(extra_id) .. ' visible=' .. tostring(extra_visible))
+        end
         if extra_id=='browser' then browsers=browsers+1 end
     end
-    if browsers~=1 then return nil end
+    if browsers~=1 then return lord_reject('browsers=' .. browsers) end
     local _,address=lord_read(function() local v=root:Find(2); return v end)
-    if not address then return nil end
+    if not address then return lord_reject('panel missing') end
     local converted,panel=lord_read(function() local v=UIComponent(address); return v end)
-    if not converted or not panel then return nil end
+    if not converted or not panel then return lord_reject('panel unconvertible') end
     local _,panel_id=lord_read(function() local v=panel:Id(); return v end)
     local _,panel_visible=lord_read(function() local v=panel:Visible(true); return v end)
     local _,panel_count=lord_read(function() local v=panel:ChildCount(); return v end)
-    if panel_id~='sp_grand_campaign' or panel_visible~=true or panel_count~=6 then return nil end
+    if panel_id~='sp_grand_campaign' or panel_visible~=true or panel_count~=6 then
+        return lord_reject('panel id=' .. tostring(panel_id) .. ' visible=' .. tostring(panel_visible) .. ' count=' .. tostring(panel_count))
+    end
     local _,root_address=lord_read(function() local v=root:Address(); return v end)
     local _,panel_address=lord_read(function() local v=panel:Address(); return v end)
     root_address,panel_address=lord_identity(root_address),lord_identity(panel_address)
-    if not root_address or not panel_address then return nil end
+    if not root_address or not panel_address then return lord_reject('identity unavailable') end
+    lord_last_reject=nil
     return {root=root,root_address=root_address,panel_address=panel_address,generation=generation}
 end
 local function lord_log(line)
@@ -1312,8 +1333,18 @@ local function lord_page(announce)
                 local function entry(suffix,label)
                     if label=='' then return end
                     if #controls>=512 then d.limited=true; return end
-                    controls[#controls+1]={key='lord:' .. item.label .. ':' .. suffix,name=label,
+                    local key='lord:' .. item.label .. ':' .. suffix
+                    local entry_item={key=key,name=label,
                         state=(state=='selected' or state=='inactive') and state or '',read_only=true,id=id,raw_state=state}
+                    -- Remember where the few named fields live so a later
+                    -- browse can notice a manual lord/difficulty change.
+                    local field=lord_names[key]
+                    if suffix=='text' and field and field.id==id then
+                        local path={}
+                        for part,value in ipairs(item.path) do path[part]=value end
+                        entry_item.watch_path,entry_item.watch_text=path,label
+                    end
+                    controls[#controls+1]=entry_item
                 end
                 entry('text',name)
                 if tooltip~=name then entry('tooltip',tooltip) end
@@ -1347,6 +1378,19 @@ local function lord_page(announce)
         .. #controls .. ' captured text entries. ' .. (d.done and (d.limited and 'Capture limited.' or 'Discovery complete.') or 'More pages available.') .. ' Read only. No game action was sent.') end
     return result
 end
+-- Re-read only the watched named fields (at most five short paths). Returns
+-- the label of the first field that changed, vanished or failed to read.
+local function lord_changed_field(context)
+    for _,item in ipairs(controls) do
+        if item.watch_path then
+            local node=lord_resolve(context.root,item.watch_path)
+            if not node then return item.watch_text end
+            local ok,text=lord_read(function() local v=node:GetStateText(); return v end)
+            if not ok or clean(text)~=item.watch_text then return item.watch_text end
+        end
+    end
+    return nil
+end
 local function lord_browse(step)
     local context=lord_context()
     if not context then
@@ -1354,6 +1398,15 @@ local function lord_browse(step)
         return false
     end
     local d=lord_discovery
+    if d and d.generation==generation and d.root_address==context.root_address
+        and d.panel_address==context.panel_address then
+        local changed=lord_changed_field(context)
+        if changed then
+            lord_log('{"kind":"stale","run":' .. lord_run .. ',"field":' .. quote(changed) .. '}')
+            lord_begin(context); d=lord_discovery
+            announce_prefix='Lord setup changed. '; step=1
+        end
+    end
     local before=#controls
     if not d or d.root_address~=context.root_address or d.panel_address~=context.panel_address
         or d.generation~=generation or #controls==0 or (step>0 and control_index==#controls and not d.done) then
@@ -1539,7 +1592,7 @@ local function publish_status()
     if #label > 800 then label = label:sub(1,800):gsub('[\192-\255][\128-\191]*$','') end
     local deadline='0'
     if pending then deadline=decimal_add(unix_value(),math.max(0,pending.deadline-clock_value())) end
-    local values = {'WH2STATUS1','0.6.18-nvda-automation-preview',session,tostring(generation),
+    local values = {'WH2STATUS1','0.6.21-nvda-automation-preview',session,tostring(generation),
         tostring(interaction_revision),tostring(auto_seq),auto_result,screen_kind,
         item and item.key or '-',label,tostring(#controls),pending and pending.target or '-',
         deadline,core:is_ui_created() and '1' or '0',
@@ -1688,5 +1741,5 @@ end
 core:add_listener('graphics_preview_automation_init','FrontendScreenTransition',true,
     function() if start_automation then start_automation() end end,true)
 start_automation()
-speak('NVDA automation preview 0.6.18. F2 next, F3 previous. New Campaign and Continue use double F4. Campaign selection has a spoken browser. Starting a campaign is not enabled.')
+speak('NVDA automation preview 0.6.21. F2 next, F3 previous. New Campaign and Continue use double F4. Campaign selection has a spoken browser. Starting a campaign is not enabled.')
 

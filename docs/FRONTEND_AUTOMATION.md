@@ -147,3 +147,14 @@ functionality. See LORD_READER_CANDIDATE_TEST.md; 0.6.14 is installed.
 The subsequent captured-data-only 0.6.17 candidate also failed live at the
 first race attribute and was rolled back. FINAL_LORD_READER_TEST.md records
 the owner-requested stopping point. 0.6.14 remains installed.
+
+## Automatic freshness and tooltip layers (0.6.21)
+
+Each F2/F3 on the Lord setup browser re-reads the watched named fields
+(selected lord, race, faction, campaign/battle difficulty) by their captured
+index paths. A changed, missing or unreadable field logs `{"kind":"stale"}`,
+restarts discovery and announces from entry 1 with "Lord setup changed."
+Other captured text still needs an explicit `-Action Discover` to refresh.
+The Lord context accepts root tooltip layers (`Tooltip`, `tooltip_*`) shown or
+hidden; the `browser` layer must be hidden; any other root layer rejects the
+context and logs `lord.context_reject` with the reason.

@@ -1030,5 +1030,48 @@ trace=contents('native-ui-graphics-preview.log')
 assert(trace:find('probe.find	string	ok number 1',1,true) and trace:find('probe.sub_method	string	ok string',1,true)
     and trace:find('probe.tostring	string	ok string',1,true),'Probe results logged')
 no_dispatch('Opt-in string probe')
+-- 0.6.19: a manual change to a watched named field restarts discovery on the
+-- next browse; unchanged fields never do.
+start(nil,lord_live,true); status=finish_lord_discovery()
+for n=1,5 do status=auto_request('next') end
+assert(not contents('native-ui-lord-discovery.jsonl'):find('"kind":"stale"',1,true),'Unchanged fields are not stale')
+nodes['tree.child2.child0.child2.child0.child4'].data.GetStateText='Synthetic changed lord'
+status=auto_request('next')
+assert(status[7]=='completed' and contents('native-ui-lord-discovery.jsonl'):find('"kind":"stale"',1,true),'Change detected')
+assert(last():find('Lord setup changed. Lord setup, 1 of',1,true),'Change is announced from entry 1')
+local fresh=false
+for n=1,40 do status=auto_request('next'); if status[10]=='Selected lord: Synthetic changed lord' then fresh=true; break end end
+assert(fresh,'New lord is read after the automatic refresh'); no_dispatch('Manual change refresh is read only')
+start(nil,lord_live,false)
+for n=1,40 do key('script_F2') end
+assert(not contents('native-ui-lord-discovery.jsonl'):find('"kind":"stale"',1,true))
+nodes['tree.child2.child0.child2.child2.child3'].data.Visible=false
+key('script_F3')
+assert(last():find('Lord setup changed. Lord setup, 1 of',1,true),'Hidden watched field restarts from entry 1 even on F3')
+assert(not contents('native-ui-graphics-preview.log'):find('navigation.ERROR',1,true))
+no_dispatch('Hidden field refresh is read only')
+-- 0.6.20: a rejected Lord context logs its reason once, without acting.
+start(nil,lord_live,false)
+nodes['tree.child4'].data.Visible=true
+key('script_F2'); key('script_F2')
+local rejects=0
+for _ in contents('native-ui-graphics-preview.log'):gmatch('lord%.context_reject	string	extra 4 id=browser visible=true') do rejects=rejects+1 end
+assert(rejects==1,'Rejection reason logged once per distinct reason')
+nodes['tree.child4'].data.Visible=false
+key('script_F2')
+assert(last():find('Lord setup',1,true),'Reader resumes once the layer hides')
+no_dispatch('Context diagnostics are read only')
+-- 0.6.20 live: selecting a lord leaves a hidden tooltip_campaign_select_lord
+-- root layer; a resting mouse shows Tooltip. Neither may disable the reader.
+local tooltip_layout={}
+for prefix,row in pairs(lord_live) do local copy={}; for k,v in pairs(row) do copy[k]=v end; tooltip_layout[prefix]=copy end
+tooltip_layout['tree'].ChildCount=7
+tooltip_layout['tree.child5']={Id='tooltip_campaign_select_lord',Visible=false,ChildCount=0,GetStateText='',GetTooltipText='',CurrentState='',IsInteractive=false}
+tooltip_layout['tree.child6']={Id='Tooltip',Visible=true,ChildCount=0,GetStateText='Teclis',GetTooltipText='',CurrentState='',IsInteractive=false}
+start(nil,tooltip_layout,true); status=finish_lord_discovery()
+assert(status[7]=='discovery-complete' and status[11]=='34','Tooltip layers do not block discovery')
+status=auto_request('next'); assert(status[8]=='lord_discovery' and status[10]=='Select Lord')
+assert(not contents('native-ui-graphics-preview.log'):find('lord.context_reject',1,true))
+no_dispatch('Tooltip layers are read only')
 io=real_io; os.time=real_time; os.date=real_date
 print('PASS: '..scenarios..' frontend scenarios; 86-node/22-control capture, cached wraparound, four allowlisted frontend targets and observed-result checks, confirmations, stale identities, native failures, template/panel changes, lifecycle, clocks and blocked game contexts')
