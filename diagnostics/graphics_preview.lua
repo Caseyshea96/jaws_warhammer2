@@ -39,6 +39,7 @@ local scan_nodes, scan_parts, scan_reads = {}, {}, {}
 local snapshot_node_count = 0
 local lord_discovery
 local announce_prefix = ''
+local lord_awaiting -- lord name sent by the last selection, until observed
 local screen_kind, awaiting_result = 'unknown', nil
 local function cancel() pending = nil end
 local function invalidate()
@@ -339,7 +340,7 @@ for _, base in ipairs(bases) do
     local path = base .. 'native-ui-graphics-preview.log'
     local f = io.open(path, 'w')
     if f then
-        local header = 'WH2 native UI diagnostic 0.6.21-nvda-automation-preview\n'
+        local header = 'WH2 native UI diagnostic 0.6.23-nvda-automation-preview\n'
         f:write(header); f:close(); log_bytes = #header + 1
         log_path = path; bridge_path = base .. (base == '' and 'jaws_access.jsonl' or 'bridge.jsonl')
         local bridge = io.open(bridge_path, 'w'); if bridge then bridge:close() end
@@ -1036,6 +1037,17 @@ local function resolve_target(snapshot, target)
     if generation ~= snapshot.generation then error('UI recreated during validation') end
     return node
 end
+-- The only native click in the mod. Drops every selection and confirmation
+-- before sending the single documented input.
+local function send_click(node, name)
+    invalidate()
+    awaiting_result = name
+    log('activation.dispatch', name)
+    if log_failed then error('Diagnostic log unavailable before dispatch') end
+    activation_outcome = 'input-sent'
+    node:SimulateLClick()
+    log('activation.returned', true)
+end
 local function activate_control()
     if screen_kind == 'graphics_advanced' or screen_kind == 'graphics_advanced_overlay' then cancel(); speak('Advanced controls are read only. Use Escape to return.'); return end
     if screen_kind == 'campaign_overlay' then cancel(); speak('Campaign overlay actions are not supported. Use Escape to return.'); return end
@@ -1078,14 +1090,7 @@ local function activate_control()
         invalidate(); speak('Confirmation cancelled because the UI changed.'); return
     end
     if log_failed then invalidate(); speak('Diagnostic log is full or unavailable. Restart the preview.'); return end
-    -- Drop every selection and confirmation before sending the single documented input.
-    invalidate()
-    awaiting_result = target.name
-    log('activation.dispatch', target.name)
-    if log_failed then error('Diagnostic log unavailable before dispatch') end
-    activation_outcome = 'input-sent'
-    node:SimulateLClick()
-    log('activation.returned', true)
+    send_click(node, target.name)
     speak('Input sent to ' .. target.name .. '. The resulting screen is not confirmed. Press F2 to inspect, or use Escape to return.')
 end
 local function screen_still_current()
@@ -1260,7 +1265,7 @@ local function lord_begin(context)
     invalidate()
     lord_run=lord_run+1
     lord_discovery={root_address=context.root_address,panel_address=context.panel_address,
-        generation=generation,queue={{path={2},label='tree.child2'}},head=1,
+        generation=generation,queue={{path={2},label='tree.child2',ids={}}},head=1,
         visited=0,page=0,done=false,limited=false,errors=0}
     screen_kind='lord_discovery'; latest_snapshot=nil
     lord_log('{"kind":"begin","run":' .. lord_run .. ',"generation":' .. generation
@@ -1343,11 +1348,34 @@ local function lord_page(announce)
                         local path={}
                         for part,value in ipairs(item.path) do path[part]=value end
                         entry_item.watch_path,entry_item.watch_text=path,label
+                        if lord_awaiting and field.label=='Selected lord' then
+                            log('activation.observed_result',(label==lord_awaiting and 'lord-match:' or 'lord-mismatch:') .. label)
+                            announce_prefix=label==lord_awaiting and ('Confirmed: ' .. label .. ' is now the selected lord. ')
+                                or ('Selection not confirmed: the selected lord is ' .. label .. '. ')
+                            lord_awaiting=nil
+                        end
                     end
                     controls[#controls+1]=entry_item
                 end
                 entry('text',name)
                 if tooltip~=name then entry('tooltip',tooltip) end
+                -- Ancestor IDs travel with each queued path so lord portraits
+                -- can be recognised and re-verified by their exact ID chain.
+                local child_ids={}
+                for part,value in ipairs(item.ids or {}) do child_ids[part]=value end
+                child_ids[#child_ids+1]=id
+                local ids,depth=item.ids or {},#(item.ids or {})
+                if depth>=4 and ids[depth]=='list_box' and ids[depth-1]=='list_clip' and ids[depth-2]=='list'
+                    and ids[depth-3]=='lord_select_list' and id~='' and id~='race_spacer' and id~='show_all_dlc'
+                    and (state=='active' or state=='selected') and values.IsInteractive==true then
+                    if #controls>=512 then d.limited=true else
+                        local path={}
+                        for part,value in ipairs(item.path) do path[part]=value end
+                        controls[#controls+1]={key='lord:' .. item.label .. ':choice',name='Lord choice: ' .. id,
+                            state=state=='selected' and 'selected' or '',read_only=false,id=id,raw_state=state,
+                            lord_choice=true,choice_path=path,choice_ids=ids}
+                    end
+                end
                 if #item.path>=16 and count>0 then d.limited=true
                 else
                     if count>100 then d.limited=true end
@@ -1356,7 +1384,7 @@ local function lord_page(announce)
                         local path={}
                         for part,value in ipairs(item.path) do path[part]=value end
                         path[#path+1]=index
-                        d.queue[#d.queue+1]={path=path,label=item.label .. '.child' .. index}
+                        d.queue[#d.queue+1]={path=path,label=item.label .. '.child' .. index,ids=child_ids}
                     end
                 end
             else
@@ -1422,6 +1450,66 @@ local function lord_browse(step)
     return true
 end
 
+-- Resolve a captured path from a fresh root, requiring every ancestor to be
+-- visible and to have the exact captured ID, and the leaf to have leaf_id.
+local function lord_resolve_checked(root,path,ids,leaf_id)
+    if #path~=#ids+1 then return nil,'identity' end
+    local node=root
+    for step,index in ipairs(path) do
+        local ok,visible=lord_read(function() local v=node:Visible(true); return v end)
+        if not ok or visible~=true then return nil,'hidden' end
+        local found,address=lord_read(function() local v=node:Find(index); return v end)
+        if not found or not address then return nil,'missing' end
+        local converted,child=lord_read(function() local v=UIComponent(address); return v end)
+        if not converted or not child then return nil,'read-error' end
+        local id_ok,id=lord_read(function() local v=child:Id(); return v end)
+        local wanted=step<=#ids and ids[step] or leaf_id
+        if not id_ok or id~=wanted then return nil,'identity' end
+        node=child
+    end
+    local ok,visible=lord_read(function() local v=node:Visible(true); return v end)
+    if not ok or visible~=true then return nil,'hidden' end
+    return node
+end
+-- Double-confirmed lord selection. Only lord-choice entries from a complete,
+-- still-current capture; every other Lord setup entry stays read only.
+local function lord_activate()
+    local item,d=controls[control_index],lord_discovery
+    if item.raw_state=='selected' then cancel(); speak(item.id .. ' is already the selected lord. No game action was sent.'); return end
+    if not d or not d.done or d.limited then
+        cancel(); speak('Finish reading the lord setup with F2 before choosing a lord. No game action was sent.'); return
+    end
+    local context=lord_context()
+    if not context or d.generation~=generation or context.root_address~=d.root_address or context.panel_address~=d.panel_address then
+        invalidate(); speak('Lord setup could not be verified. Browse again. No game action was sent.'); return
+    end
+    if lord_changed_field(context) then invalidate(); speak('Lord setup changed. Browse again. No game action was sent.'); return end
+    local node,reason=lord_resolve_checked(context.root,item.choice_path,item.choice_ids,item.id)
+    if not node then invalidate(); speak('Lord choice could not be verified: ' .. reason .. '. No game action was sent.'); return end
+    local interactive_ok,interactive=lord_read(function() local v=node:IsInteractive(); return v end)
+    local state_ok,state=lord_read(function() local v=node:CurrentState(); return v end)
+    if not interactive_ok or interactive~=true or not state_ok or state~='active' then
+        invalidate(); speak('Lord choice state changed. Browse again. No game action was sent.'); return
+    end
+    local now=clock_value()
+    if pending and (now<pending.armed_at or now>pending.deadline) then
+        cancel(); speak('Confirmation expired or the clock changed. Press F4 to start again.'); return
+    end
+    if not pending then
+        pending={target=item.key,armed_at=now,deadline=now+4,fingerprint=item.id,generation=generation,origin=activation_origin}
+        activation_outcome='armed'
+        log('activation.armed',now)
+        speak('Select lord ' .. item.id .. '. Press F4 again within four seconds.'); return
+    end
+    if pending.target~=item.key or pending.generation~=generation or pending.fingerprint~=item.id then
+        invalidate(); speak('Confirmation cancelled because the selection changed.'); return
+    end
+    if log_failed then invalidate(); speak('Diagnostic log is full or unavailable. Restart the preview.'); return end
+    lord_awaiting=item.id
+    send_click(node,'Lord choice: ' .. item.id)
+    speak('Input sent to select ' .. item.id .. '. Press F2 to read the updated setup and confirm.')
+end
+
 local function lifecycle(name)
     generation = generation + 1
     invalidate()
@@ -1480,13 +1568,17 @@ end
 local function request_activation(source)
     interaction_revision = interaction_revision + 1
     activation_origin, activation_outcome = source, 'blocked'
-    if lord_discovery or screen_kind=='lord_discovery' then cancel(); speak('Lord setup discovery is read only. No game action was sent.'); return true,'blocked' end
+    local lord_mode=lord_discovery or screen_kind=='lord_discovery'
+    if lord_mode then
+        local item=controls[control_index]
+        if not (item and item.lord_choice) then cancel(); speak('Lord setup discovery is read only. No game action was sent.'); return true,'blocked' end
+    end
     log('activation.source', source); log('activation.received', 'script_F4')
     if pending and pending.origin ~= source then
         cancel(); log('activation.confirmation_source_changed', source)
         speak('Confirmation cancelled because the input source changed.'); return false, 'blocked'
     end
-    local ok, err = pcall(function() activate_control() end)
+    local ok, err = pcall(function() if lord_mode then lord_activate() else activate_control() end end)
     if not ok then
         local after_input = activation_outcome == 'input-sent'
         invalidate(); log('activation.ERROR', err)
@@ -1592,7 +1684,7 @@ local function publish_status()
     if #label > 800 then label = label:sub(1,800):gsub('[\192-\255][\128-\191]*$','') end
     local deadline='0'
     if pending then deadline=decimal_add(unix_value(),math.max(0,pending.deadline-clock_value())) end
-    local values = {'WH2STATUS1','0.6.21-nvda-automation-preview',session,tostring(generation),
+    local values = {'WH2STATUS1','0.6.23-nvda-automation-preview',session,tostring(generation),
         tostring(interaction_revision),tostring(auto_seq),auto_result,screen_kind,
         item and item.key or '-',label,tostring(#controls),pending and pending.target or '-',
         deadline,core:is_ui_created() and '1' or '0',
@@ -1741,5 +1833,5 @@ end
 core:add_listener('graphics_preview_automation_init','FrontendScreenTransition',true,
     function() if start_automation then start_automation() end end,true)
 start_automation()
-speak('NVDA automation preview 0.6.21. F2 next, F3 previous. New Campaign and Continue use double F4. Campaign selection has a spoken browser. Starting a campaign is not enabled.')
+speak('NVDA automation preview 0.6.23. F2 next, F3 previous. New Campaign and Continue use double F4. Campaign selection has a spoken browser. Starting a campaign is not enabled.')
 

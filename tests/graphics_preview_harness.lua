@@ -971,9 +971,11 @@ no_dispatch('Keyboard-only discovery paging remains read only')
 -- Labels operate on captured data only; no fresh native field watcher.
 local lord_live=dofile('tests/fixtures/lord_reader_live.lua')
 start(nil,lord_live,true); status=finish_lord_discovery()
-assert(status[7]=='discovery-complete' and status[11]=='34')
+-- 34 text entries plus 19 visible lord portraits in this 0.6.14 capture.
+local lord_total=53
+assert(status[7]=='discovery-complete' and status[11]==tostring(lord_total))
 local named={}
-for n=1,34 do status=auto_request('next'); named[status[10]]=true end
+for n=1,lord_total do status=auto_request('next'); named[status[10]]=true end
 for _,name in ipairs({'Selected lord: Tyrion','Race: High Elves','Faction: Eataine',
     'Campaign difficulty: Normal','Battle difficulty: Normal',
     'Faction effect: Diplomatic relations: +20 with High Elves',
@@ -986,7 +988,7 @@ nodes['tree.child2.child0.child2.child0.child4'].data.GetStateText='Synthetic ch
 status=auto_request('discover'); assert(status[7]=='discovery-page' and status[9]=='-','Explicit refresh clears the old selection')
 status=finish_lord_discovery()
 local refreshed=false
-for n=1,34 do status=auto_request('next'); if status[10]=='Selected lord: Synthetic changed lord' then refreshed=true end end
+for n=1,lord_total do status=auto_request('next'); if status[10]=='Selected lord: Synthetic changed lord' then refreshed=true end end
 assert(refreshed); no_dispatch('Explicit snapshot refresh never dispatches')
 start(nil,lord_live,false)
 local match_before=string.match; string.match=nil
@@ -1004,7 +1006,7 @@ string.find=function(s,...)
 end
 start(nil,lord_live,true); status=finish_lord_discovery()
 local labelled={}
-for n=1,34 do status=auto_request('next'); labelled[status[10]]=true end
+for n=1,lord_total do status=auto_request('next'); labelled[status[10]]=true end
 restore_strings()
 assert(string.sub('abc',1,1)=='a','Lord labels never call string.find on captured keys')
 assert(labelled['Race attribute: Intrigue: Influence can be spent on superior Lords, or used to affect diplomacy between factions.'],'Race attribute label')
@@ -1069,9 +1071,85 @@ tooltip_layout['tree'].ChildCount=7
 tooltip_layout['tree.child5']={Id='tooltip_campaign_select_lord',Visible=false,ChildCount=0,GetStateText='',GetTooltipText='',CurrentState='',IsInteractive=false}
 tooltip_layout['tree.child6']={Id='Tooltip',Visible=true,ChildCount=0,GetStateText='Teclis',GetTooltipText='',CurrentState='',IsInteractive=false}
 start(nil,tooltip_layout,true); status=finish_lord_discovery()
-assert(status[7]=='discovery-complete' and status[11]=='34','Tooltip layers do not block discovery')
+assert(status[7]=='discovery-complete' and status[11]==tostring(lord_total),'Tooltip layers do not block discovery')
 status=auto_request('next'); assert(status[8]=='lord_discovery' and status[10]=='Select Lord')
 assert(not contents('native-ui-graphics-preview.log'):find('lord.context_reject',1,true))
 no_dispatch('Tooltip layers are read only')
+-- 0.6.22: double-confirmed lord selection from lord-choice entries only.
+local portrait='tree.child2.child0.child1.child0.child1.child0.child0.child1'
+local tyrion_portrait='tree.child2.child0.child1.child0.child1.child0.child0.child0'
+local function browse_to(label, limit)
+    for n=1,(limit or 200) do key('script_F2'); if last():find(label,1,true) then return true end end
+    return false
+end
+local function capture_complete() return contents('native-ui-lord-discovery.jsonl'):find('"complete":true',1,true) end
+-- Keyboard: complete capture, arm, confirm; observed result from the fresh capture.
+start(nil,lord_live,false)
+for n=1,lord_total+5 do key('script_F2') end
+assert(capture_complete(),'Capture completes before selection tests')
+assert(browse_to('Lord choice: Teclis'),'Portraits are spoken as lord choices')
+assert(not last():find('read only',1,true),'Lord choices are actionable, not read only')
+key('script_F4'); assert(last():find('Select lord Teclis. Press F4 again within four seconds.',1,true)); no_dispatch('First F4 only arms')
+click_hook=function()
+    nodes[tyrion_portrait].data.CurrentState='active'; nodes[portrait].data.CurrentState='selected'
+    nodes['tree.child2.child0.child2.child0.child4'].data.GetStateText='Teclis'
+end
+key('script_F4'); assert(#dispatches==1 and dispatches[1]==portrait,'Second F4 selects exactly the chosen portrait')
+assert(last():find('Input sent to select Teclis',1,true))
+click_hook=nil
+key('script_F2')
+assert(contents('native-ui-graphics-preview.log'):find('activation.observed_result\tstring\tlord-match:Teclis',1,true),'Selection observed from the fresh capture')
+assert(last():find('Confirmed: Teclis is now the selected lord. Lord setup, 1 of',1,true),'Confirmation spoken with the first fresh entry')
+-- The selected lord and read-only entries never dispatch.
+assert(browse_to('Lord choice: Teclis, selected'))
+key('script_F4'); assert(last():find('Teclis is already the selected lord. No game action was sent.',1,true))
+assert(browse_to('Selected lord: Teclis'))
+key('script_F4'); assert(last():find('Lord setup discovery is read only',1,true))
+assert(#dispatches==1,'No further dispatch')
+-- If the game ignores the click, the fresh capture says so.
+start(nil,lord_live,false)
+for n=1,lord_total+5 do key('script_F2') end
+assert(browse_to('Lord choice: Teclis'))
+key('script_F4'); key('script_F4'); assert(#dispatches==1)
+key('script_F2')
+assert(contents('native-ui-graphics-preview.log'):find('activation.observed_result\tstring\tlord-mismatch:Tyrion',1,true))
+assert(last():find('Selection not confirmed: the selected lord is Tyrion.',1,true),'Mismatch is spoken')
+-- Browsing between F4 presses cancels; expiry and identity changes block.
+start(nil,lord_live,false)
+for n=1,lord_total+5 do key('script_F2') end
+assert(browse_to('Lord choice: Teclis'))
+key('script_F4'); key('script_F3'); assert(browse_to('Lord choice: Teclis'))
+key('script_F4'); assert(last():find('Press F4 again',1,true),'Browsing cancelled the first confirmation'); no_dispatch('Cancelled confirmation')
+now=now+5
+key('script_F4'); assert(last():find('Confirmation expired',1,true)); no_dispatch('Expired confirmation')
+key('script_F4'); assert(last():find('Press F4 again',1,true))
+nodes[portrait].data.Id='Teclis impostor'
+key('script_F4'); assert(last():find('Lord choice could not be verified: identity',1,true)); no_dispatch('Changed identity')
+-- A changed watched field blocks before arming.
+start(nil,lord_live,false)
+for n=1,lord_total+5 do key('script_F2') end
+assert(browse_to('Lord choice: Teclis'))
+nodes['tree.child2.child0.child2.child2.child1.child3'].data.GetStateText='Synthetic faction'
+key('script_F4'); assert(last():find('Lord setup changed. Browse again. No game action was sent.',1,true)); no_dispatch('Stale capture')
+-- A lord choice from an incomplete capture cannot be selected.
+start(nil,lord_live,false)
+local early=false
+for n=1,200 do
+    key('script_F2')
+    if last():find('Lord choice: Teclis',1,true) then early=not capture_complete(); break end
+end
+if early then key('script_F4'); assert(last():find('Finish reading the lord setup',1,true)); no_dispatch('Incomplete capture') end
+-- Automation needs two separately accepted requests, like the keyboard.
+start(nil,lord_live,true); status=finish_lord_discovery()
+local choice_key
+for n=1,lord_total do status=auto_request('next'); if status[10]=='Lord choice: Teclis' then choice_key=status[9]; break end end
+assert(choice_key=='lord:' .. portrait .. ':choice')
+status=auto_request('activate'); assert(status[7]=='armed' and status[12]==choice_key); no_dispatch('Automation first confirm')
+status=auto_request('activate'); assert(status[7]=='input-sent' and #dispatches==1 and dispatches[1]==portrait)
+-- Start Campaign stays blocked.
+start(nil,lord_live,true); status=finish_lord_discovery()
+for n=1,lord_total do status=auto_request('next'); if status[10]=='Start Campaign' then break end end
+assert(status[10]=='Start Campaign')
+status=auto_request('activate'); assert(status[7]=='blocked'); no_dispatch('Start Campaign remains blocked')
 io=real_io; os.time=real_time; os.date=real_date
 print('PASS: '..scenarios..' frontend scenarios; 86-node/22-control capture, cached wraparound, four allowlisted frontend targets and observed-result checks, confirmations, stale identities, native failures, template/panel changes, lifecycle, clocks and blocked game contexts')

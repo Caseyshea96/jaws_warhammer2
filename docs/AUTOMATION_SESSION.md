@@ -342,3 +342,12 @@ clicks. 0.6.19 exposed that any mouse selection disabled the reader (hidden
 `tooltip_campaign_select_lord` root layer); 0.6.20 logged the reason; 0.6.21
 accepts tooltip layers. 0.6.21 is installed and accepted. Details:
 LORD_REFRESH_0_6_21_TEST.md.
+
+## 0.6.23 — keyboard lord selection (October 29)
+
+Owner unblocked lord selection (Start Campaign stays blocked). Lord portraits
+are "Lord choice" entries; a double-confirmed F4 sends one click after a full
+freshness/identity check, and the next browse confirms the result in speech.
+Live: Teclis and Tyrion selected and confirmed, re-select refused, incomplete
+capture refused. 0.6.23 is installed and accepted. Details:
+LORD_SELECT_0_6_23_TEST.md.

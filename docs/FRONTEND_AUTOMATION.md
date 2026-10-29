@@ -158,3 +158,12 @@ Other captured text still needs an explicit `-Action Discover` to refresh.
 The Lord context accepts root tooltip layers (`Tooltip`, `tooltip_*`) shown or
 hidden; the `browser` layer must be hidden; any other root layer rejects the
 context and logs `lord.context_reject` with the reason.
+
+## Lord selection (0.6.23)
+
+Lord-choice entries (portraits) are the only actionable Lord setup entries.
+F4 twice within four seconds, from a complete and still-current capture, sends
+one click through the shared single call site; everything else on Lord setup,
+including Start Campaign, answers "read only". The automation client needs
+`-ExpectedSelectedKey <lord choice key> -DoubleConfirm`. The next capture logs
+`activation.observed_result lord-match:<name>` or `lord-mismatch:<name>`.

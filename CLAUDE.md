@@ -24,12 +24,13 @@ left intact. Paths like `work/live-0.6.17-lord-discovery` in the docs resolve he
 ## Current state — read before working
 
 - `docs/AUTOMATION_SESSION.md` — full session history and current stop point.
-- `docs/LORD_REFRESH_0_6_21_TEST.md` — latest live result (automatic refresh).
+- `docs/LORD_SELECT_0_6_23_TEST.md` — latest live result (lord selection).
+- `docs/LORD_REFRESH_0_6_21_TEST.md` — automatic refresh.
 - `docs/LORD_READER_0_6_18_TEST.md` — the confirmed `string.find` root cause.
 - `docs/FRONTEND_AUTOMATION.md` — the opt-in automation channel protocol.
 
-Accepted build: **0.6.21** (installed, in source and packaging). 0.6.18 and
-0.6.14 are previous good builds; 0.6.15–0.6.17 are failed candidates — never deploy them.
+Accepted build: **0.6.23** (installed, in source and packaging). 0.6.21, 0.6.18
+and 0.6.14 are previous good builds; 0.6.15–0.6.17 are failed candidates — never deploy them.
 
 **Never call `string.find` in the runtime.** In WH2 the plain form returns nil
 for a match and then makes `string.sub` return numbers (confirmed live). Use
@@ -55,7 +56,8 @@ Each takes `-Version 0.6.x` and/or `-Evidence work/live-<version>-<topic>`:
 `Install-Build` (backup + install + hash check) → `Start-Session -Direct`
 (lease, companion, launch with TWMM's mod list) → `Wait-Game` (records owned
 PID, waits for endpoint) → `Capture-Screen` (confirm main menu) → `Reach-Lord`
-→ `Capture-Screen` (confirm Select Lord) → `Test-LordReader` → `Stop-Session`
+→ `Capture-Screen` (confirm Select Lord) → `Test-LordReader` → `Test-LordSelect`
+→ `Stop-Session`
 (revoke lease, copy evidence, close only owned processes).
 `Start-Session -StringFindProbe` runs the string.find probe (separate launch).
 `Click-Screen -X -Y [-MoveOnly]` stands in for a user's mouse (physical pixels =
@@ -128,7 +130,7 @@ authorized scope.
 - Verify each major transition before continuing.
 - Never repeatedly click a control without checking the resulting state.
 - If the same launch step fails twice, investigate rather than retrying blindly.
-- Preserve the last known working build (0.6.21; before it 0.6.18) as the rollback.
+- Preserve the last known working build (0.6.23; before it 0.6.21) as the rollback.
 - Do not delete game saves or unrelated configuration files.
 - Distinguish launcher failures, mod-loading failures, game crashes, and
   accessibility integration failures.
@@ -140,8 +142,8 @@ authorized scope.
 
 ### Blocked actions
 
-Starting a campaign, changing lord/settings, gameplay and co-op stay blocked
-unless the owner explicitly unblocks them.
+Lord selection is unblocked (owner, October 29). Starting a campaign, changing
+settings, gameplay and co-op stay blocked unless the owner explicitly unblocks them.
 
 ### Completion criteria
 
