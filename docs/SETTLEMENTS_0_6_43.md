@@ -89,3 +89,19 @@ Lord in both runs, so no click was needed.
   upgrade popup, build focus, turns-left number, Recruit Hero panel.
   Evidence: work/live-0.6.44-settlements, work/live-0.6.45-settlements.
   Accepted rollback stays 0.6.43.
+
+### Blocker found (0.6.45 live, October 29 evening)
+
+The building upgrade popup (`construction_popup`) is hover-bound: the game
+closes it as soon as the mouse pointer is not over the building or popup.
+The mod's click opens it, but it closes at once unless the pointer happens
+to be there. In the 0.6.43 run the pointer was by chance over the popup
+area (a map hover tooltip at that spot is visible in its screenshot), which
+is why building worked; in three 0.6.45 attempts it did not open by keyboard.
+A real test mouse click on the slot opened it; moving the pointer away
+closed it (screenshots in `work/live-0.6.45-settlements-3`). In one session
+a ChatGPT/Codex always-on-top, click-through overlay (0,0–467,1080) was also
+on screen and real clicks did nothing; without it they worked.
+Options: the companion moves the pointer onto the building when it is
+activated (needs the element's screen position: Position()/Bounds() plus the
+game window's client rectangle); or find another construction path.
