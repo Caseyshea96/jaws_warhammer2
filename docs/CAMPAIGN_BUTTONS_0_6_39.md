@@ -99,3 +99,18 @@ Evidence: `work/live-0.6.41-endturn`, `work/live-0.6.41-endturn-2`.
   activated." → "Screen updated." … "Current turn number, 2". Harness: 371
   frontend + 42 campaign scenarios. A second autosave was written.
 Evidence: `work/live-0.6.42-keyboard-turn-3`.
+
+## Open: settlements work started; campaign start stalled (0.6.42, live)
+
+Goal (owner choice): settlements — open the Provinces tab (`tab_regions`),
+choose a province row to select its settlement, read the settlement panel,
+build/recruit through its buttons. Province rows are probably not `button_*`
+IDs, so activation will need to cover list rows (inspect their IDs first).
+
+This attempt (tutorial left on) never reached the HUD: the campaign module
+logged loading-screen → cinematic-visible at 17:16:57, its status stopped
+updating at 17:17:41, and the game showed the same flyover frame for 7+
+minutes, even after a title-bar click to focus it. Earlier tutorial runs did
+pass the flyover. Unknown whether the game froze, paused for input, or the
+real_timer stopped. Evidence: `work/live-0.6.42-provinces`. Next session:
+reproduce once; if it recurs, compare with work/live-0.6.37 (passed).
