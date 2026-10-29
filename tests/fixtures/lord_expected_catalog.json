@@ -1,0 +1,138 @@
+[
+  {
+    "key": "lord:tree.child2.child2.child0:text",
+    "name": "Select Lord"
+  },
+  {
+    "key": "lord:tree.child2.child1.child0.child1:text",
+    "name": "Start Campaign"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child0.child4:text",
+    "name": "Selected lord: Tyrion"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child0.child5.child0:tooltip",
+    "name": "Campaign introduction: selected. Start the campaign with additional introductory content designed to explain the basics of the game. Select if this is your first Total War: WARHAMMER II campaign."
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child1.child2.child0:text",
+    "name": "Race Attributes"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child1.child4.child0:text",
+    "name": "Race: High Elves"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child1.child5.child0:tooltip",
+    "name": "Movie"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child1.child5.child1:tooltip",
+    "name": "Map"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child1.child3:text",
+    "name": "Faction: Eataine"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child2.child0:text",
+    "name": "Additional Starting Units"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child3.child0:text",
+    "name": "Difficulty"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child4.child0:tooltip",
+    "name": "Settings"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child5.child0:text",
+    "name": "Recommended First Campaign"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child0.child5.child0.child0:text",
+    "name": "Enable campaign introduction"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child0.child5.child0.child0:tooltip",
+    "name": "Start the campaign with additional introductory content designed to explain the basics of the game. Select if this is your first Total War: WARHAMMER II campaign."
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child3.child2.child0.child0:text",
+    "name": "Campaign difficulty: Normal"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child3.child2.child0.child2:text",
+    "name": "Campaign"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child3.child2.child1.child0:text",
+    "name": "Battle difficulty: Normal"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child3.child2.child1.child2:text",
+    "name": "Battle"
+  },
+  {
+    "key": "lord:tree.child2.child0.child1.child0.child1.child0.child0.child50.child0:text",
+    "name": "Downloadable Content"
+  },
+  {
+    "key": "lord:tree.child2.child0.child1.child0.child1.child0.child0.child50.child1:text",
+    "name": "Show all"
+  },
+  {
+    "key": "lord:tree.child2.child0.child1.child0.child1.child0.child0.child50.child2:text",
+    "name": "+20"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child1.child2.child1.child0.child0.child0.child0:text",
+    "name": "Race attribute: Intrigue: Influence can be spent on superior Lords, or used to affect diplomacy between factions."
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child1.child2.child1.child0.child0.child0.child1:text",
+    "name": "Race attribute: Espionage: Trade agreements allow line of sight to assets controlled by the trade partner."
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child1.child2.child1.child0.child0.child0.child2:text",
+    "name": "Race attribute: Martial Prowess: Superior coordination in melee combat when High Elves enter battle at full strength."
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child2.child1.child0.child0.child1.child0:tooltip",
+    "name": "Flying Monster"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child2.child1.child0.child1.child1.child0:tooltip",
+    "name": "Field Artillery"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child1.child1.child0.child0.child0.child0.child0:text",
+    "name": "Faction effects"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child1.child1.child0.child0.child0.child0.child1:text",
+    "name": "Faction effect: Diplomatic relations: +20 with High Elves"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child1.child1.child0.child0.child0.child0.child2:text",
+    "name": "Faction effect: Construction time: -50% for Shrine of Khaine building"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child1.child1.child0.child0.child0.child0.child3:text",
+    "name": "Faction effect: Recruitment duration: -1 turn for infantry and cavalry units (minimum 1)"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child1.child1.child0.child0.child0.child0.child4:text",
+    "name": "Lord effects"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child1.child1.child0.child0.child0.child0.child5:text",
+    "name": "Lord effect: Upkeep: -50% for Spearmen, Silverin Guard, Rangers, Archers and Silver Helms units ( Lord's army)"
+  },
+  {
+    "key": "lord:tree.child2.child0.child2.child2.child1.child1.child0.child0.child0.child0.child6:text",
+    "name": "Lord effect: Recruit rank: +3 for Lothern Sea Guard units ( Lord's army)"
+  }
+]

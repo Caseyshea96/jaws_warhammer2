@@ -116,7 +116,11 @@ code 0 proves a completed in-game transition or full audible speech. The initial
 0.6.3 installer omitted the helper; 0.6.4 adds it to the verified install/remove
 allowlists and checks all installed runtime payload hashes in regression tests.
 
-## Unpromoted candidate: named Lord fields and refresh (0.6.15–0.6.16)
+## Named Lord fields (promoted in 0.6.18 as captured-data labels)
+
+0.6.18 ships the captured-data labels and explicit Discover refresh (no native
+field watchers). The 0.6.15–0.6.16 watcher design below was never promoted; its
+failures came from `string.find` (see LORD_READER_0_6_18_TEST.md).
 
 The read-only browser labels the selected lord, race, faction, campaign and battle
 difficulty, campaign introduction state, race attributes and individual faction/

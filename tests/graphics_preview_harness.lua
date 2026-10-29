@@ -12,6 +12,7 @@ local read_hook, click_hook, file_failure, speech_write_throw
 local lord_write_failure
 local automation_poll, automation_timer, automation_base, automation_status_failure, automation_timer_failure
 local scenarios = 0
+local probe_flag = false
 local function build_nodes(layout)
     local result = {}
     for prefix, row in pairs(layout) do
@@ -65,6 +66,7 @@ local function start(mode, layout, enable_automation, setup_status_failure, envi
             return real_getenv(name)
         end
     end
+    if probe_flag then files[automation_base .. 'string-find-probe.flag']={'1'} end
     if enable_automation then
         files[automation_base .. 'automation-enabled.tsv']={type(enable_automation)=='string' and enable_automation or ('WH2LEASE1\t' .. string.rep('a',32) .. '\t1060\n')}
         real_timer={
@@ -924,7 +926,7 @@ assert(saw_start)
 status=auto_request('activate'); assert(status[7]=='blocked')
 key('script_F4'); no_dispatch('Start Campaign is read only in lord discovery')
 start(nil,lord_fixture,true); status=auto_request('next')
-assert(status[8]=='lord_discovery' and contents('bridge.jsonl'):find('Captured lord setup information',1,true))
+assert(status[8]=='lord_discovery' and contents('bridge.jsonl'):find('Lord setup',1,true))
 no_dispatch('F2 lord discovery is read only')
 start(nil,fixture,true); status=auto_request('discover'); assert(status[7]=='blocked')
 assert(contents('native-ui-lord-discovery.jsonl')=='')
@@ -966,5 +968,67 @@ for step=1,600 do
 end
 assert(paged_by_f2 and contents('native-ui-lord-discovery.jsonl'):find('Synthetic Lord 99',1,true),'F2 must complete discovery without the developer Discover command')
 no_dispatch('Keyboard-only discovery paging remains read only')
+-- Labels operate on captured data only; no fresh native field watcher.
+local lord_live=dofile('tests/fixtures/lord_reader_live.lua')
+start(nil,lord_live,true); status=finish_lord_discovery()
+assert(status[7]=='discovery-complete' and status[11]=='34')
+local named={}
+for n=1,34 do status=auto_request('next'); named[status[10]]=true end
+for _,name in ipairs({'Selected lord: Tyrion','Race: High Elves','Faction: Eataine',
+    'Campaign difficulty: Normal','Battle difficulty: Normal',
+    'Faction effect: Diplomatic relations: +20 with High Elves',
+    'Lord effect: Recruit rank: +3 for Lothern Sea Guard units ( Lord\'s army)'}) do assert(named[name],name) end
+local saw_intro=false
+for name in pairs(named) do if name:find('Campaign introduction: selected.',1,true)==1 then saw_intro=true end end
+assert(saw_intro); no_dispatch('Captured semantic presentation is read only')
+start(nil,lord_live,true); status=finish_lord_discovery()
+nodes['tree.child2.child0.child2.child0.child4'].data.GetStateText='Synthetic changed lord'
+status=auto_request('discover'); assert(status[7]=='discovery-page' and status[9]=='-','Explicit refresh clears the old selection')
+status=finish_lord_discovery()
+local refreshed=false
+for n=1,34 do status=auto_request('next'); if status[10]=='Selected lord: Synthetic changed lord' then refreshed=true end end
+assert(refreshed); no_dispatch('Explicit snapshot refresh never dispatches')
+start(nil,lord_live,false)
+local match_before=string.match; string.match=nil
+for n=1,100 do key('script_F2') end
+string.match=match_before
+assert(not contents('native-ui-graphics-preview.log'):find('navigation.ERROR',1,true),'Captured labels do not depend on string.match')
+no_dispatch('Host-compatible read-only semantic labels')
+-- 0.6.18: in-game, the first s:find(p,1,true) on captured Lord text was
+-- followed by s:sub() returning a non-string. Simulate that fault.
+local real_find, real_sub = string.find, string.sub
+local function restore_strings() string.find, string.sub = real_find, real_sub end
+string.find=function(s,...)
+    if type(s)=='string' and real_sub(s,1,5)=='lord:' then string.sub=function() return 0 end end
+    return real_find(s,...)
+end
+start(nil,lord_live,true); status=finish_lord_discovery()
+local labelled={}
+for n=1,34 do status=auto_request('next'); labelled[status[10]]=true end
+restore_strings()
+assert(string.sub('abc',1,1)=='a','Lord labels never call string.find on captured keys')
+assert(labelled['Race attribute: Intrigue: Influence can be spent on superior Lords, or used to affect diplomacy between factions.'],'Race attribute label')
+assert(labelled['Selected lord: Tyrion'] and labelled['Faction: Eataine'])
+assert(not contents('native-ui-graphics-preview.log'):find('ERROR',1,true))
+no_dispatch('Labels avoid string.find')
+-- If a string call does break mid-navigation, the report is logged plainly
+-- and the request still completes.
+start(nil,lord_live,false)
+-- Pass the shortcut trace's 64-sample cap so only navigation logs remain.
+for n=1,70 do key('script_F2') end
+read_hook=function() read_hook=nil; string.sub=function() return 0 end end
+key('script_F2')
+restore_strings()
+local trace=contents('native-ui-graphics-preview.log')
+assert(trace:find('navigation.REPORT_FAILED	string	after-success',1,true),'Broken report is logged plainly')
+no_dispatch('Navigation report guard')
+-- The string.find probe runs only when its flag file exists.
+start(nil,lord_live,false)
+assert(not contents('native-ui-graphics-preview.log'):find('probe.',1,true),'Probe is off by default')
+probe_flag=true; start(nil,lord_live,false); probe_flag=false
+trace=contents('native-ui-graphics-preview.log')
+assert(trace:find('probe.find	string	ok number 1',1,true) and trace:find('probe.sub_method	string	ok string',1,true)
+    and trace:find('probe.tostring	string	ok string',1,true),'Probe results logged')
+no_dispatch('Opt-in string probe')
 io=real_io; os.time=real_time; os.date=real_date
 print('PASS: '..scenarios..' frontend scenarios; 86-node/22-control capture, cached wraparound, four allowlisted frontend targets and observed-result checks, confirmations, stale identities, native failures, template/panel changes, lifecycle, clocks and blocked game contexts')

@@ -323,3 +323,13 @@ Next isolate captured metadata and race-attribute prefix formatting with bounded
 native stage/type diagnostics; do not assume field watchers or the original
 logger caused the issue. Preserve 0.6.14, saves and activation gates. Do not
 repeat old real_timer/epoch fixes or claim injected keys/intro skipping passed.
+
+## 0.6.18 — Lord reader passed; string.find root cause confirmed (October 29)
+
+0.6.18 passed the full live Lord reader test (34 labelled entries, paging,
+wrap, explicit refresh, Start Campaign blocked, exactly two native clicks,
+graceful shutdown). A separate probe launch confirmed that WH2's plain
+`string.find` returns nil for a matching prefix and then makes `string.sub`
+return numbers — the cause of every 0.6.15–0.6.17 failure. Never call
+`string.find` in the runtime. 0.6.18 is installed and is the accepted build.
+Details: LORD_READER_0_6_18_TEST.md. Live scripts: tools/live/.

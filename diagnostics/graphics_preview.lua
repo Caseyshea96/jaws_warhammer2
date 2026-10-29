@@ -338,7 +338,7 @@ for _, base in ipairs(bases) do
     local path = base .. 'native-ui-graphics-preview.log'
     local f = io.open(path, 'w')
     if f then
-        local header = 'WH2 native UI diagnostic 0.6.14-nvda-automation-preview\n'
+        local header = 'WH2 native UI diagnostic 0.6.18-nvda-automation-preview\n'
         f:write(header); f:close(); log_bytes = #header + 1
         log_path = path; bridge_path = base .. (base == '' and 'jaws_access.jsonl' or 'bridge.jsonl')
         local bridge = io.open(bridge_path, 'w'); if bridge then bridge:close() end
@@ -347,6 +347,32 @@ for _, base in ipairs(bases) do
 end
 log('runtime.string_match', type(string.match))
 log('runtime.string_find', type(string.find))
+-- Every failed 0.6.15-0.6.17 candidate called s:find(p,1,true) on captured
+-- text; 0.6.14 never calls string.find. After the first such call in-game,
+-- the next s:sub() returned a non-string. Use string.sub prefix checks only.
+local function starts_with(s, prefix)
+    return type(s) == 'string' and string.sub(s, 1, #prefix) == prefix
+end
+-- Fallback that formats nothing, for logging after a failed string call.
+local function plain_log(stage, text)
+    if log_path then append(log_path, stage .. '\tstring\t' .. (type(text) == 'string' and text or ('non-string ' .. type(text)))) end
+end
+-- Opt-in confirmation probe, off unless string-find-probe.flag sits beside
+-- the log. It may break later string calls, so run it in a separate launch.
+if log_path then
+    local flag = io.open(string.sub(log_path, 1, #log_path - #'native-ui-graphics-preview.log') .. 'string-find-probe.flag', 'r')
+    if flag then
+        flag:close()
+        local ok, found = pcall(string.find, 'lord:tree.a.b', 'lord:tree.', 1, true)
+        plain_log('probe.find', (ok and 'ok ' or 'error ') .. type(found) .. ' ' .. (type(found) == 'number' and (found .. '') or ''))
+        local sok, piece = pcall(string.sub, 'abc', 1, 1)
+        plain_log('probe.sub_function', (sok and 'ok ' or 'error ') .. type(piece))
+        local mok, method = pcall(function() return ('abc'):sub(1, 1) end)
+        plain_log('probe.sub_method', (mok and 'ok ' or 'error ') .. type(method))
+        local tok, text = pcall(function() return tostring('abc') end)
+        plain_log('probe.tostring', (tok and 'ok ' or 'error ') .. type(text))
+    end
+end
 local function observe(name, fn)
     log(name .. '.START', true)
     local value
@@ -778,6 +804,35 @@ local function capture(source)
     log('capture.COMPLETE', runs)
     return latest_snapshot
 end
+-- Presentation of already captured values only. No native calls, retained
+-- components, selection changes or activation eligibility are introduced.
+local lord_names={
+    ['lord:tree.child2.child0.child2.child0.child4:text']={id='dy_faction_leader',label='Selected lord'},
+    ['lord:tree.child2.child0.child2.child1.child4.child0:text']={id='dy_race',label='Race'},
+    ['lord:tree.child2.child0.child2.child2.child1.child3:text']={id='label_faction_name',label='Faction'},
+    ['lord:tree.child2.child0.child2.child2.child3.child2.child0.child0:text']={id='dy_selected_txt',label='Campaign difficulty'},
+    ['lord:tree.child2.child0.child2.child2.child3.child2.child1.child0:text']={id='dy_selected_txt',label='Battle difficulty'}
+}
+local function lord_spoken_name(item)
+    local name=item.raw_name or item.name
+    local field=lord_names[item.key]
+    if field and field.id==item.id then return field.label .. ': ' .. name end
+    if item.id=='checkbox_start_prelude' then return 'Campaign introduction: '
+        .. (item.raw_state=='selected' and 'selected' or 'state ' .. item.raw_state) .. '. ' .. name end
+    if item.id=='bullet' and starts_with(item.key,'lord:tree.child2.child0.child2.child1.child2.child1.') then
+        return 'Race attribute: ' .. name
+    end
+    if starts_with(item.id,'lord_effect') and starts_with(item.key,'lord:tree.child2.child0.child2.child2.child1.child1.') then
+        local group
+        for _,other in ipairs(controls) do
+            if other.raw_state=='faction_traits' then group='Faction effect'
+            elseif other.raw_state=='lord_traits' then group='Lord effect' end
+            if other==item then break end
+        end
+        if group and item.raw_state~='faction_traits' and item.raw_state~='lord_traits' then return group .. ': ' .. name end
+    end
+    return name
+end
 local function announce_control(step)
     cancel()
     if #controls == 0 then
@@ -791,8 +846,9 @@ local function announce_control(step)
     if control_index == 0 then control_index = step > 0 and 1 or #controls
     else control_index = ((control_index - 1 + step) % #controls) + 1 end
     local item = controls[control_index]
+    if screen_kind=='lord_discovery' then item.raw_name=item.raw_name or item.name; item.name=lord_spoken_name(item) end
     local state = item.state ~= '' and (', ' .. item.state) or ''
-    local context = screen_kind == 'lord_discovery' and 'Captured lord setup information' or screen_kind == 'campaign_selection' and 'Campaign selection' or screen_kind == 'graphics_advanced' and 'Advanced graphics' or (screen_kind == 'graphics' and 'Graphics settings' or 'Controls')
+    local context = screen_kind == 'lord_discovery' and 'Lord setup' or screen_kind == 'campaign_selection' and 'Campaign selection' or screen_kind == 'graphics_advanced' and 'Advanced graphics' or (screen_kind == 'graphics' and 'Graphics settings' or 'Controls')
     speak(context .. ', ' .. control_index .. ' of ' .. #controls .. ': ' .. item.name .. (item.read_only and ', read only' or '') .. state .. '.')
 end
 local graphics_key = 'tree.child2.child1.child0.child0.child2.child0.child1'
@@ -1257,7 +1313,7 @@ local function lord_page(announce)
                     if label=='' then return end
                     if #controls>=512 then d.limited=true; return end
                     controls[#controls+1]={key='lord:' .. item.label .. ':' .. suffix,name=label,
-                        state=(state=='selected' or state=='inactive') and state or '',read_only=true}
+                        state=(state=='selected' or state=='inactive') and state or '',read_only=true,id=id,raw_state=state}
                 end
                 entry('text',name)
                 if tooltip~=name then entry('tooltip',tooltip) end
@@ -1357,10 +1413,15 @@ local function navigate(shortcut, source)
         if not captured then browse_snapshot = capture('browse') end
         if shortcut == 'script_F2' then announce_control(1) else announce_control(-1) end
     end)
-    if not ok then
-        invalidate(); log('navigation.ERROR', err)
-        speak('Navigation failed: ' .. tostring(err) .. '. Send the native preview log.')
-    else log('navigation.COMPLETE', shortcut) end
+    -- These calls sit outside the pcall above; if a string call broke the
+    -- runtime, report it here instead of failing the automation request.
+    local reported = pcall(function()
+        if not ok then
+            invalidate(); log('navigation.ERROR', err)
+            speak('Navigation failed: ' .. tostring(err) .. '. Send the native preview log.')
+        else log('navigation.COMPLETE', shortcut) end
+    end)
+    if not reported then plain_log('navigation.REPORT_FAILED', ok and 'after-success' or 'after-error') end
     return ok
 end
 local function request_activation(source)
@@ -1478,7 +1539,7 @@ local function publish_status()
     if #label > 800 then label = label:sub(1,800):gsub('[\192-\255][\128-\191]*$','') end
     local deadline='0'
     if pending then deadline=decimal_add(unix_value(),math.max(0,pending.deadline-clock_value())) end
-    local values = {'WH2STATUS1','0.6.14-nvda-automation-preview',session,tostring(generation),
+    local values = {'WH2STATUS1','0.6.18-nvda-automation-preview',session,tostring(generation),
         tostring(interaction_revision),tostring(auto_seq),auto_result,screen_kind,
         item and item.key or '-',label,tostring(#controls),pending and pending.target or '-',
         deadline,core:is_ui_created() and '1' or '0',
@@ -1529,7 +1590,7 @@ local function poll_automation()
         automation_log('automation.accepted',tostring(number) .. ':' .. action)
         if action == 'next' or action == 'previous' then
             auto_result = navigate(action == 'next' and 'script_F2' or 'script_F3','automation') and 'completed' or 'error'
-        elseif action=='discover' then interaction_revision=interaction_revision+1; cancel(); auto_result=lord_page(true)
+        elseif action=='discover' then interaction_revision=interaction_revision+1; cancel(); if lord_discovery and lord_discovery.done then invalidate() end; auto_result=lord_page(true)
         else local _, result = request_activation('automation'); auto_result=result end
         publish_status()
     end)
@@ -1627,5 +1688,5 @@ end
 core:add_listener('graphics_preview_automation_init','FrontendScreenTransition',true,
     function() if start_automation then start_automation() end end,true)
 start_automation()
-speak('NVDA automation preview 0.6.14. F2 next, F3 previous. New Campaign and Continue use double F4. Campaign selection has a spoken browser. Starting a campaign is not enabled.')
+speak('NVDA automation preview 0.6.18. F2 next, F3 previous. New Campaign and Continue use double F4. Campaign selection has a spoken browser. Starting a campaign is not enabled.')
 

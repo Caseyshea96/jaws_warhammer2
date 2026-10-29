@@ -24,11 +24,16 @@ left intact. Paths like `work/live-0.6.17-lord-discovery` in the docs resolve he
 ## Current state — read before working
 
 - `docs/AUTOMATION_SESSION.md` — full session history and current stop point.
-- `docs/FINAL_LORD_READER_TEST.md` — latest live result (0.6.17 failed).
+- `docs/LORD_READER_0_6_18_TEST.md` — latest live result (0.6.18 passed) and
+  the confirmed `string.find` root cause.
 - `docs/FRONTEND_AUTOMATION.md` — the opt-in automation channel protocol.
 
-Accepted build: **0.6.14** (installed, in source and packaging). 0.6.15–0.6.17
-are failed candidates; never deploy them as accepted builds.
+Accepted build: **0.6.18** (installed, in source and packaging). 0.6.14 is the
+previous good build; 0.6.15–0.6.17 are failed candidates — never deploy them.
+
+**Never call `string.find` in the runtime.** In WH2 the plain form returns nil
+for a match and then makes `string.sub` return numbers (confirmed live). Use
+`starts_with` / `string.sub`.
 
 ## Building and testing
 
@@ -44,13 +49,25 @@ are failed candidates; never deploy them as accepted builds.
 - Read desktop logs and game processes outside the sandbox; sandboxed reads can
   show stale files and miss the game process.
 
+## Live test scripts (`tools/live/`)
+
+Each takes `-Version 0.6.x` and/or `-Evidence work/live-<version>-<topic>`:
+`Install-Build` (backup + install + hash check) → `Start-Session -Direct`
+(lease, companion, launch with TWMM's mod list) → `Wait-Game` (records owned
+PID, waits for endpoint) → `Capture-Screen` (confirm main menu) → `Reach-Lord`
+→ `Capture-Screen` (confirm Select Lord) → `Test-LordReader` → `Stop-Session`
+(revoke lease, copy evidence, close only owned processes).
+`Start-Session -StringFindProbe` runs the string.find probe (separate launch).
+The owner approved direct launch (`-Direct`) instead of clicking PLAY in TWMM.
+
 ## Driving the game
 
 - Injected keystrokes (F2/F3/F4, Escape, Space) do **not** reach the game. Drive
   navigation with the opt-in automation channel (`Automation.ps1 -Action
   Enable/Status/Next/Previous/Discover/Activate/Disable`), not key injection.
-- Use computer use only to verify what is on screen and to operate Steam and
-  TW Mod Manager.
+- Check the screen with `tools/live/Capture-Screen.ps1` and read the PNG when
+  no computer-use tool is available; use computer use (if present) only to
+  verify the screen and operate Steam / TW Mod Manager.
 - Logs: `%LOCALAPPDATA%\JawsWarhammer2\native-ui-graphics-preview.log`,
   `native-ui-lord-discovery.jsonl`, `bridge.jsonl`.
 
@@ -108,7 +125,7 @@ authorized scope.
 - Verify each major transition before continuing.
 - Never repeatedly click a control without checking the resulting state.
 - If the same launch step fails twice, investigate rather than retrying blindly.
-- Preserve the last known working build (0.6.14) as the rollback.
+- Preserve the last known working build (0.6.18; before it 0.6.14) as the rollback.
 - Do not delete game saves or unrelated configuration files.
 - Distinguish launcher failures, mod-loading failures, game crashes, and
   accessibility integration failures.
