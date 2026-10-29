@@ -50,3 +50,16 @@ rituals; Missions: The Lore of Learning.
 - Campaign activation, map actions, gameplay and co-op remain blocked.
 
 Evidence: `work/live-0.6.31-campaign`, `work/live-0.6.32-campaign`.
+
+## 0.6.33 polish (live)
+
+- "(" / ")" around income dropped; `dy_income` reads "Income, 1901".
+- Buttons whose tooltip is a warning get their name, warning kept as the
+  description: "End turn, button" (… "Dismiss all advice and related events
+  before ending turn."), "Skip, button", "Repeat advice, button".
+- Bare counts: known IDs labelled ("Unresolved events, 1"); otherwise joined to
+  the item before ("Missions, 1").
+- Panel titles (`dy_title`, `tx_title`) are headings ("How They Play, heading",
+  "Missions & Quests, heading").
+- Live: 50 items, 0 issues, ready, self-test passed; no saves written.
+  Evidence `work/live-0.6.33-campaign`. Harness 34 campaign scenarios.

@@ -23,7 +23,7 @@ end
 local initial,owner,expiry,mode=read_flag()
 if not initial then return end
 local session='campaign:' .. owner .. ':' .. tostring({})
-local version='0.6.32'
+local version='0.6.33'
 local sequence,generation,bytes,run,attempts=0,1,0,0,0
 local phase,result,last_request='initialising','ready',''
 local queue,head,visited,page,entries,index={},1,0,0,{},0
@@ -161,7 +161,8 @@ local function browse(step,quiet)
     if not quiet then
         local id=type(item.id)=='string' and item.id or ''
         local role=(string.sub(id,1,7)=='button_' and 'button') or (string.sub(id,1,4)=='tab_' and 'tab')
-            or (string.sub(id,1,7)=='toggle_' and 'toggle button') or nil
+            or (string.sub(id,1,7)=='toggle_' and 'toggle button') or (id=='3D_advisor_portrait' and 'button')
+            or ((id=='dy_title' or id=='tx_title') and 'heading') or nil
         local parts={item.name}
         if role then parts[#parts+1]=role end
         if item.value and item.value~='' then parts[#parts+1]=item.value end
@@ -180,6 +181,19 @@ local function verify_reader()
     assert(browse(-1,true)==entries[#entries].key,'Previous wrap failed')
     emit('{"kind":"reader-verification","run":' .. run .. ',"passed":true,"entries":' .. #entries .. ',"source":"native-self-test","physical_keys_verified":false}')
     index=0
+end
+-- Labels for HUD elements whose own text is only a value or whose tooltip is
+-- a warning rather than a name (from the 0.6.32 live capture).
+local value_labels={dy_income='Income',counter='Unresolved events'}
+local name_labels={button_end_turn='End turn',button_skip='Skip',['3D_advisor_portrait']='Repeat advice'}
+local punctuation={['(']=true,[')']=true}
+local function is_number(value)
+    if value=='' then return false end
+    for position=1,#value do
+        local byte=string.byte(value,position)
+        if not (byte>=48 and byte<=57) and byte~=44 and byte~=45 and byte~=43 then return false end
+    end
+    return true
 end
 local excluded={['3d_ui_parent']='world-space',['character_map_path_icons']='world-space',
     ['watermark_square']='visual-only',['black_fade']='visual-only',['cinematic_bars']='visual-only',
@@ -229,6 +243,17 @@ local function page_read()
                 local entry_name,value,description=name,'',''
                 if name~='' and tip_name~='' and tip_name~=name then entry_name,value,description=tip_name,name,tip_description
                 elseif name=='' then entry_name,description=tip_name,tip_description end
+                if name_labels[id] then
+                    -- The tooltip is a warning ("Dismiss all advice ..."): keep it as the description.
+                    if entry_name~=name_labels[id] then description=tooltip end
+                    entry_name,value=name_labels[id],(name~='' and name~=tooltip) and name or ''
+                elseif value_labels[id] and value=='' and name~='' then entry_name,value=value_labels[id],name end
+                local previous=entries[#entries]
+                if punctuation[entry_name] and value=='' then entry_name=''
+                elseif value=='' and description=='' and is_number(entry_name) and previous and (previous.value or '')=='' then
+                    -- A bare count belongs to the item before it: "Missions, 1".
+                    previous.value=entry_name; entry_name=''
+                end
                 if entry_name~='' then
                     if #entries>=512 then limit('entry-budget',item.label,#entries)
                     else entries[#entries+1]={key='campaign:' .. item.label .. ':' .. (name~='' and 'text' or 'tooltip'),

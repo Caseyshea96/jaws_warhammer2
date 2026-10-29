@@ -174,5 +174,23 @@ assert(spoken:find('Menu, button, 3 of 4',1,true) and spoken:find('Events, tab, 
 assert(not spoken:find('Province: Somewhere',1,true) and not spoken:find(', text,',1,true),'Hover tooltip excluded; no "text" role')
 assert(contents('native-ui-campaign-discovery.jsonl'):find('"reason":"hover-tooltip"',1,true))
 fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==0 and contents('bridge.jsonl'):find('Not supported yet.',1,true))
+-- 0.6.33: income without brackets, End Turn named, bare counts joined to
+-- the item before them, panel titles as headings.
+start('campaign',valid,7)
+local function set(index,id,label,tip)
+    local item=nodes['tree.child0.child' .. index]; item.id=id; item.label=label
+    function item:GetTooltipText() return tip or '' end
+end
+set(0,'tx_(','('); set(1,'dy_income','1901'); set(2,'tx_)',')')
+set(3,'button_end_turn','','[[col:red]]Dismiss all advice and related events before ending turn.[[/col]]')
+set(4,'dy_title','Missions'); set(5,'child_count','1'); set(6,'counter','2')
+begin();finish()
+for n=1,8 do fire('ShortcutTriggered',{string='script_F2'}) end
+local heard=contents('bridge.jsonl')
+assert(heard:find('Income, 1901, ',1,true),heard)
+assert(heard:find('End turn, button, ',1,true) and heard:find('Dismiss all advice and related events before ending turn.',1,true),heard)
+assert(heard:find('Missions, heading, 1, ',1,true) and heard:find('Unresolved events, 2, ',1,true),heard)
+assert(not heard:find('"(, ',1,true) and not heard:find('"text":"(',1,true) and not heard:find('"text":")',1,true),'No bracket items')
+assert(status():find('"count":5',1,true),status())
 io=saved_io;os.date=saved_date
 print('PASS: ' .. scenarios .. ' campaign diagnostic scenarios; HUD readiness, scoped discovery, typed failures, capture protocol, replay/generation/lease guards, limits, cancellation and zero clicks')

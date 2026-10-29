@@ -162,7 +162,7 @@ authorized scope.
 - Verify each major transition before continuing.
 - Never repeatedly click a control without checking the resulting state.
 - If the same launch step fails twice, investigate rather than retrying blindly.
-- Preserve the last known working build (0.6.32; before it 0.6.28) as the rollback.
+- Preserve the last known working build (0.6.33; before it 0.6.32) as the rollback.
 - Do not delete game saves or unrelated configuration files.
 - Distinguish launcher failures, mod-loading failures, game crashes, and
   accessibility integration failures.
