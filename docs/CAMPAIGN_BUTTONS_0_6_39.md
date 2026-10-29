@@ -83,3 +83,19 @@ user could not dismiss advice.
   save folder — left in place for the owner to keep or delete.
 - Harness: 41 campaign scenarios.
 Evidence: `work/live-0.6.41-endturn`, `work/live-0.6.41-endturn-2`.
+
+## 0.6.42: first turn played entirely by keyboard (live)
+
+- Unlabelled `button_*` elements are listed only in clickable states
+  (active/hover/selected/down); NewState containers ("Set") are dropped.
+- Main-menu template: with saves present the game enables Continue Campaign
+  and Load Campaign; their state/interactivity may now differ (identities and
+  labels exact). The test autosave had made New Campaign refuse ("Could not
+  verify this screen") — the safety check working; now handled.
+- `tools/live/Press-Item.ps1` (letter until item, Enter N times).
+- Live (intro check box cleared by mouse; everything else by keys): A → Accept
+  (How They Play), A → Accept (Mission Issued!), C → Close advice, S → Skip
+  ×3 (notifications announced live), E → End turn, confirm → "End turn
+  activated." → "Screen updated." … "Current turn number, 2". Harness: 371
+  frontend + 42 campaign scenarios. A second autosave was written.
+Evidence: `work/live-0.6.42-keyboard-turn-3`.

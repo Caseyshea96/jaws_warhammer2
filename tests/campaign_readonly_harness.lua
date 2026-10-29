@@ -321,5 +321,14 @@ assert(not heard:find('Overlay test',1,true),'Test buttons stay hidden')
 fire('ShortcutTriggered',{string='script_F3'})
 for n=1,4 do if contents('bridge.jsonl'):match('"text":"([^"]*)"}\n$'):find('Close advice',1,true)==1 then break end; fire('ShortcutTriggered',{string='script_F2'}) end
 fire('ShortcutTriggered',{string='script_F4'}); assert(clicked=='tree.child4.child0','Close advice can be pressed')
+-- 0.6.42: button_* containers in NewState are not listed; Accept is.
+local make=start('campaign',nil,1)
+local holder=make('tree.child4','button_set',1,'',true); nodes.tree.count=5
+function holder:CurrentState() return 'NewState' end
+make('tree.child4.child0','button_accept',0,'',true)
+begin(); for n=1,12 do tick(1) end
+for n=1,4 do fire('ShortcutTriggered',{string='script_F2'}) end
+local heard=contents('bridge.jsonl')
+assert(heard:find('Accept, button, ',1,true) and not heard:find('Set, button',1,true),heard)
 io=saved_io;os.date=saved_date
 print('PASS: ' .. scenarios .. ' campaign diagnostic scenarios; HUD readiness, scoped discovery, typed failures, capture protocol, replay/generation/lease guards, limits, cancellation and zero clicks')

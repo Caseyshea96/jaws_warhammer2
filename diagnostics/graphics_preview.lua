@@ -342,7 +342,7 @@ for _, base in ipairs(bases) do
     local path = base .. 'native-ui-graphics-preview.log'
     local f = io.open(path, 'w')
     if f then
-        local header = 'WH2 native UI diagnostic 0.6.41-nvda-automation-preview\n'
+        local header = 'WH2 native UI diagnostic 0.6.42-nvda-automation-preview\n'
         f:write(header); f:close(); log_bytes = #header + 1
         log_path = path; bridge_path = base .. (base == '' and 'jaws_access.jsonl' or 'bridge.jsonl')
         local bridge = io.open(bridge_path, 'w'); if bridge then bridge:close() end
@@ -996,12 +996,22 @@ local function same_layout(snapshot)
             -- using that same representation, not broader whitespace cleanup.
             -- The confirmation fingerprint and final native leaf comparison
             -- still retain the exact raw strings and detect byte-level changes.
+            -- With saves present the game enables Continue Campaign and Load
+            -- Campaign (seen live after a test autosave). Only their state and
+            -- interactivity may differ; identities and labels stay exact.
+            local save_prefix = prefix == 'tree.child2.child1.child0.child0.child0.child0.child2'
+                or prefix == 'tree.child2.child1.child0.child0.child0.child0.child2.child0'
+                or prefix == 'tree.child2.child1.child0.child0.child0.child0.child3'
+                or prefix == 'tree.child2.child1.child0.child0.child0.child0.child3.child0'
+            local saves_variant = snapshot.layout == 'main' and save_prefix and read and read.ok
+                and ((method == 'CurrentState' and value == 'string:inactive' and (read.value == 'active' or read.value == 'hover'))
+                    or (method == 'IsInteractive' and type(read.value) == 'boolean'))
             local diagnostic_text_variant = snapshot.layout == 'campaign_selection'
                 and (method == 'GetStateText' or method == 'GetTooltipText')
                 and read and read.ok and type(read.value) == 'string'
                 and ('string:' .. read.value:gsub('[\r\n]', ' ')) == value
             if not read or not read.ok or (type(read.value) .. ':' .. tostring(read.value) ~= value
-                and not window_mode_variant and not campaign_root_variant and not dlc_header_hover and not diagnostic_text_variant) then
+                and not window_mode_variant and not campaign_root_variant and not dlc_header_hover and not diagnostic_text_variant and not saves_variant) then
                 log('layout.mismatch', prefix .. '.' .. method .. '; expected ' .. quote(value) .. '; got ' .. quote(read and (type(read.value) .. ':' .. tostring(read.value)) or 'missing'))
                 return false
             end
@@ -1828,7 +1838,7 @@ local function publish_status()
     if #label > 800 then label = label:sub(1,800):gsub('[\192-\255][\128-\191]*$','') end
     local deadline='0'
     if pending then deadline=decimal_add(unix_value(),math.max(0,pending.deadline-clock_value())) end
-    local values = {'WH2STATUS1','0.6.41-nvda-automation-preview',session,tostring(generation),
+    local values = {'WH2STATUS1','0.6.42-nvda-automation-preview',session,tostring(generation),
         tostring(interaction_revision),tostring(auto_seq),auto_result,screen_kind,
         item and item.key or '-',label,tostring(#controls),pending and pending.target or '-',
         deadline,core:is_ui_created() and '1' or '0',

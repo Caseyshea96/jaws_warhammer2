@@ -26,7 +26,7 @@ local initial,owner,expiry,mode=read_flag()
 local diagnostic=initial~=nil
 if not diagnostic then owner,expiry,mode='player','9999-12-31T23:59:59Z','player' end
 local session='campaign:' .. owner .. ':' .. tostring({})
-local version='0.6.41'
+local version='0.6.42'
 local sequence,generation,bytes,run,attempts=0,1,0,0,0
 local phase,result,last_request='initialising','ready',''
 local queue,head,visited,page,entries,index={},1,0,0,{},0
@@ -306,7 +306,8 @@ local function page_read()
                 local entry_name,value,description=name,'',''
                 if name~='' and tip_name~='' and tip_name~=name then entry_name,value,description=tip_name,name,tip_description
                 elseif name=='' then entry_name,description=tip_name,tip_description end
-                if entry_name=='' and state~='inactive' and state~='locked' then entry_name=button_name(id,item.ids) end
+                -- Containers named button_* sit in NewState; only clickable states count.
+                if entry_name=='' and (state=='active' or state=='hover' or state=='selected' or state=='down') then entry_name=button_name(id,item.ids) end
                 if name_labels[id] then
                     -- The tooltip is a warning ("Dismiss all advice ..."): keep it as the description.
                     if entry_name~=name_labels[id] then description=tooltip end

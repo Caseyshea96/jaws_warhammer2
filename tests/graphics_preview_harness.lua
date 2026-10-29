@@ -1348,5 +1348,18 @@ start(); nodes[dlc_header].data.CurrentState='hover'; nodes[dlc_header].data.Id=
 choose_campaign(); key('script_F4'); key('script_F4'); no_dispatch('DLC header identity remains exact')
 start(); nodes[dlc_header].data.CurrentState='hover'; choose_campaign(); key('script_F4')
 nodes[dlc_header].data.CurrentState='active'; key('script_F4'); no_dispatch('A changed raw header state cancels confirmation')
+-- 0.6.42: with saves present, Continue/Load Campaign are enabled; New Campaign still opens.
+single_press=true
+start()
+for _,prefix in ipairs({'tree.child2.child1.child0.child0.child0.child0.child2','tree.child2.child1.child0.child0.child0.child0.child2.child0',
+    'tree.child2.child1.child0.child0.child0.child0.child3','tree.child2.child1.child0.child0.child0.child0.child3.child0'}) do
+    nodes[prefix].data.CurrentState='active'
+end
+key('script_F2'); assert(says('New Campaign, button'))
+key('script_F2'); assert(says('Continue Campaign, button, 2 of 22') and not says('unavailable'),last())
+key('script_F3')
+click_hook=function() install_scene(campaign_fixture) end
+key('script_F4'); assert(#dispatches==1 and dispatches[1]==campaign_key,'New Campaign opens with saves present')
+click_hook=nil; single_press=false
 io=real_io; os.time=real_time; os.date=real_date
 print('PASS: '..scenarios..' frontend scenarios; 86-node/22-control capture, cached wraparound, four allowlisted frontend targets and observed-result checks, confirmations, stale identities, native failures, template/panel changes, lifecycle, clocks and blocked game contexts')
