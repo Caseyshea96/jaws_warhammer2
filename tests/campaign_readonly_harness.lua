@@ -227,5 +227,37 @@ keys('companion',{'next','next'}); assert(contents('bridge.jsonl')==quiet,'Keys 
 fire('ShortcutTriggered',{string='script_shift_F3'}); for n=1,10 do tick(1) end
 assert(select(2,contents('bridge.jsonl'):gsub('Campaign map, 4 items.',''))==2,'Shift+F3 reads the screen again')
 assert(dispatches==0)
+-- 0.6.36: a newly shown panel is read automatically, starting at its first
+-- new item; a moving hover tooltip never triggers a re-read.
+local make=start('campaign',nil)
+begin(); for n=1,12 do tick(1) end
+assert(contents('bridge.jsonl'):find('Campaign map, 4 items.',1,true))
+local panel=make('tree.child4','technology_panel',1,'',true); nodes.tree.count=6
+make('tree.child4.child0','tx_title',0,'Technology')
+local hover=make('tree.child5','Tooltip',0,'Province: Somewhere',false)
+hover.visible=true; tick(4); hover.visible=false; tick(1)
+local function updates() return select(2,contents('bridge.jsonl'):gsub('Screen updated%.','')) end
+for n=1,12 do tick(1) end
+assert(updates()==1,contents('bridge.jsonl'))
+assert(contents('bridge.jsonl'):find('Technology, heading, ',1,true),'Starts at the new panel')
+local quiet=contents('bridge.jsonl')
+hover.visible=true; for n=1,6 do tick(1) end; hover.visible=false; for n=1,6 do tick(1) end
+assert(contents('bridge.jsonl')==quiet,'Hover tooltip does not trigger a re-read')
+panel.visible=false; for n=1,12 do tick(1) end
+assert(updates()==2,'Closing the panel re-reads too')
+assert(dispatches==0)
+-- 0.6.37: a panel swapped deeper inside the HUD is noticed; blinking is not.
+local make=start('campaign',nil)
+begin(); for n=1,12 do tick(1) end
+local first=nodes['tree.child0.child0']; first.visible=false
+local swapped=make('tree.child0.child3','mission_issued',0,'Mission Issued!'); nodes['tree.child0'].count=4
+for n=1,14 do tick(1) end
+assert(select(2,contents('bridge.jsonl'):gsub('Screen updated%.',''))==1,contents('bridge.jsonl'))
+assert(contents('bridge.jsonl'):find('Mission Issued!, ',1,true),'Starts at the swapped-in panel')
+local quiet=contents('bridge.jsonl')
+for n=1,20 do swapped.visible=(n%2==0); tick(1) end
+swapped.visible=true; tick(1)
+assert(select(2,contents('bridge.jsonl'):gsub('Screen updated%.',''))<=2,'Blinking does not cause repeated re-reads')
+assert(dispatches==0)
 io=saved_io;os.date=saved_date
 print('PASS: ' .. scenarios .. ' campaign diagnostic scenarios; HUD readiness, scoped discovery, typed failures, capture protocol, replay/generation/lease guards, limits, cancellation and zero clicks')

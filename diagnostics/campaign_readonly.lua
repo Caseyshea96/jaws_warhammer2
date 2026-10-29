@@ -26,7 +26,7 @@ local initial,owner,expiry,mode=read_flag()
 local diagnostic=initial~=nil
 if not diagnostic then owner,expiry,mode='player','9999-12-31T23:59:59Z','player' end
 local session='campaign:' .. owner .. ':' .. tostring({})
-local version='0.6.35'
+local version='0.6.37'
 local sequence,generation,bytes,run,attempts=0,1,0,0,0
 local phase,result,last_request='initialising','ready',''
 local queue,head,visited,page,entries,index={},1,0,0,{},0
@@ -40,6 +40,7 @@ local request_count=0
 local last_request_raw,last_readiness
 local reported_limits={}
 local publish_status,request_capture
+local captured_signature,previous_keys,refresh_announce,changed_ticks,last_signature=nil,{},false,0,nil
 local verified_reader=false
 local auto_reader=false -- verify-mode HUD reading keeps the one-second pace
 local function quoted(value)
@@ -102,8 +103,11 @@ local function text(value) return type(value)=='string' and bounded(value,4000) 
 -- Reading IDs/visibility of root children reveals no hidden text. The game's
 -- campaign UI library places its HUD under "layout"; the last live capture
 -- showed this hidden while cinematic_bars was visible.
+local signature_skip={Tooltip=true,['3d_ui_parent']=true,character_map_path_icons=true,
+    watermark_square=true,black_fade=true,cinematic_bars=true}
 local function hud_context()
     if not core:is_ui_created() then return nil,'ui-not-created' end
+    local parts={}
     local ok,root=read(function() local v=core:get_ui_root(); return v end)
     if not ok or not root then return nil,'root-unavailable' end
     local _,id=read(function() local v=root:Id(); return v end)
@@ -119,6 +123,7 @@ local function hud_context()
         local _,child_id=read(function() local v=node:Id(); return v end)
         local _,shown=read(function() local v=node:Visible(true); return v end)
         if type(child_id)~='string' or type(shown)~='boolean' then return nil,'root-child-type' end
+        if not signature_skip[child_id] then parts[#parts+1]=child_id .. (shown and '+' or '-') end
         if child_id=='layout' then
             if layout then return nil,'duplicate-layout' end
             layout=node; layout_visible=shown
@@ -130,7 +135,36 @@ local function hud_context()
     if not layout or not layout_visible then return nil,'hud-hidden' end
     local root_address,layout_address=identity(root),identity(layout)
     if not root_address or not layout_address then return nil,'identity-unavailable' end
-    return {root=root,root_address=root_address,layout_address=layout_address,count=count}
+    return {root=root,root_address=root_address,layout_address=layout_address,count=count,signature=table.concat(parts,',')}
+end
+-- Which panels are showing, three levels deep (capped at 300 elements), so a
+-- panel swapped inside a container (tutorial "Mission Issued!") is noticed.
+local function panel_signature(context)
+    local parts,queue_nodes,head_node,seen={},{},1,0
+    for i=0,context.count-1 do
+        local _,address=read(function() local v=context.root:Find(i); return v end)
+        local ok,node=read(function() local v=UIComponent(address); return v end)
+        if ok and node then queue_nodes[#queue_nodes+1]={node=node,depth=1} end
+    end
+    while head_node<=#queue_nodes and seen<300 do
+        local item=queue_nodes[head_node]; head_node=head_node+1; seen=seen+1
+        local _,id=read(function() local v=item.node:Id(); return v end)
+        local _,shown=read(function() local v=item.node:Visible(true); return v end)
+        if type(id)=='string' and not (item.depth==1 and signature_skip[id]) then
+            parts[#parts+1]=item.depth .. id .. (shown==true and '+' or '-')
+            if shown==true and item.depth<3 then
+                local _,count=read(function() local v=item.node:ChildCount(); return v end)
+                if type(count)=='number' then
+                    for i=0,math.min(count,40)-1 do
+                        local _,address=read(function() local v=item.node:Find(i); return v end)
+                        local ok,child=read(function() local v=UIComponent(address); return v end)
+                        if ok and child then queue_nodes[#queue_nodes+1]={node=child,depth=item.depth+1} end
+                    end
+                end
+            end
+        end
+    end
+    return table.concat(parts,',')
 end
 local function resolve(root,path,ids)
     local node=root
@@ -152,6 +186,8 @@ local function resolve(root,path,ids)
     return node
 end
 local function cancel(reason)
+    previous_keys={}
+    for _,entry in ipairs(entries) do previous_keys[entry.key]=true end
     generation=generation+1; phase='cancelled'; result=reason
     finished=false; entries={}; queue={}; index=0
     emit('{"kind":"cancelled","run":' .. run .. ',"generation":' .. generation .. ',"reason":' .. quoted(reason) .. '}')
@@ -293,7 +329,16 @@ local function page_read()
         .. ',"complete":' .. tostring(finished and not limited) .. ',"limited":' .. tostring(limited) .. '}')
     if finished then
         phase=limited and 'limited' or 'ready';result='capture-complete';verify_reader()
-        speak('Campaign map, ' .. #entries .. ' items.' .. (limited and ' Some text could not be read.' or ''))
+        if refresh_announce then
+            -- Like focus moving into a newly opened dialog: start at the first new item.
+            refresh_announce=false
+            local found
+            for position,entry in ipairs(entries) do if not previous_keys[entry.key] then found=position;break end end
+            speak('Screen updated.')
+            index=found and found-1 or 0
+        else
+            speak('Campaign map, ' .. #entries .. ' items.' .. (limited and ' Some text could not be read.' or ''))
+        end
         browse(1,false)
     end
 end
@@ -315,10 +360,11 @@ local function waiting_step()
         stable_ticks=signature==stable_identity and stable_ticks+1 or 1;stable_identity=signature;reason='hud-stabilising'
         if stable_ticks>=2 then
             run=run+1;root_identity=context.root_address;layout_identity=context.layout_address;root_count=context.count
+            captured_signature=panel_signature(context)
             queue={{path={},ids={},label='tree'}};phase='scanning';result='scanning'
             emit('{"kind":"begin","version":' .. quoted(version) .. ',"session":' .. quoted(session) .. ',"run":' .. run
                 .. ',"generation":' .. generation .. ',"read_only":true,"scope":"hud-and-dialogs-excluding-world-space","page_budget":48,"node_budget":1536}')
-            speak('Reading the campaign map.');return
+            if not refresh_announce then speak('Reading the campaign map.') end;return
         end
     else stable_ticks=0;stable_identity=nil end
     if reason~=last_readiness then
@@ -426,6 +472,25 @@ local function tick()
             if not lease_active() or (diagnostic and ticks>1800) then stop('lease-ended');publish_status();return end
             read_request()
             if phase=='waiting' then waiting_step() elseif phase=='scanning' then page_read() end
+            -- Re-read automatically when the visible panels change and settle.
+            if phase=='ready' or phase=='limited' or phase=='cancelled' then
+                local context=phase~='cancelled' and hud_context() or nil
+                local signature=context and panel_signature(context)
+                -- Changed, and the same for two seconds (blinking never settles).
+                local settled=signature and signature==last_signature
+                last_signature=signature
+                if phase=='cancelled' or (signature and signature~=captured_signature and settled) then
+                    changed_ticks=changed_ticks+1
+                    if changed_ticks>=2 then
+                        changed_ticks=0
+                        if phase~='cancelled' then
+                            previous_keys={}
+                            for _,entry in ipairs(entries) do previous_keys[entry.key]=true end
+                        end
+                        refresh_announce=request_capture('auto-refresh')
+                    end
+                else changed_ticks=0 end
+            end
             publish_status()
         end
         if verified_reader and not reader_mode then

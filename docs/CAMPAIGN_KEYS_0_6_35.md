@@ -37,3 +37,20 @@ keys never reach the game), and whether the camera also moves when a physical
 arrow is taken for reading.
 
 Evidence: `work/live-0.6.34-campaign-keys`, `work/live-0.6.35-campaign-keys`.
+
+## 0.6.36–0.6.37: automatic announcements when the screen changes (live)
+
+Like a screen reader announcing a newly opened dialog: once a second the
+reader takes a signature of which panels are showing (three levels deep,
+capped at 300 elements; hover tooltip and world/visual layers ignored). When
+it differs from the captured screen and has stayed the same for two seconds
+(so blinking never triggers it), the screen is re-read automatically and the
+reader says "Screen updated." and moves to the first new item. A cancelled
+capture (HUD changed while browsing) also re-reads automatically.
+
+0.6.36 compared only top-level panels and missed the tutorial's panel swap
+(How They Play → Mission Issued!, inside a container). 0.6.37 live: 15 quiet
+seconds with no false "Screen updated"; dismissing How They Play (mouse click
+on its check mark, a tutorial dismissal) → "Screen updated." "Mission Issued!,
+heading, 34 of 57". No saves written. Harness 37 campaign scenarios.
+Evidence: `work/live-0.6.36-campaign-refresh`, `work/live-0.6.37-campaign-refresh`.
