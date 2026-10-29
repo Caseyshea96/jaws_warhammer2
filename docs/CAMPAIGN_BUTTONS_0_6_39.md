@@ -57,3 +57,29 @@ Not verified: End Turn live (deliberately not pressed), physical keys.
   Unresolved; no saves written.
 - Harness: 40 campaign scenarios.
 Evidence: `work/live-0.6.40-endturn`, `work/live-0.6.40-endturn-notutorial`.
+
+## 0.6.41: unlabelled buttons named; End Turn reaches turn 2 (live)
+
+Why the turn did not advance: WH2 keeps End Turn waiting while advice or
+notifications are pending, and the advisor's Close button (and similar check
+marks) has no text or tooltip, so the reader never listed it — a keyboard
+user could not dismiss advice.
+
+- Unlabelled active `button_*` elements are now listed with a name from the
+  ID ("Close advice, button" under the advice interface; "Subpanel",
+  "Notification" …). Test-only IDs and inactive buttons stay hidden.
+- Live, without the tutorial (intro check box cleared; note the first click
+  on an unfocused game window only focuses it): dismissed How They Play and
+  Mission Issued! (test mouse clicks); C → "Close advice, button" → Enter →
+  "Close advice activated." "Screen updated."; End Turn's tooltip became
+  "Resolve or skip this notification to end turn"; S → "Skip, button, Skip
+  current notification" → Enter, three times (the reader announced each new
+  notification live: "Settlement upgrade available", "Research available",
+  "End turn"); then End Turn → confirm → "End turn activated." The AI turns
+  ran; treasury 6000 → 7901, turn counter 2; "Screen updated." "High
+  Elves, 7 of 51" (new advice).
+- The game wrote its own autosave at turn 2
+  (`Eataine_Auto-save1557312775.save`, 5.6 MB) into the previously empty
+  save folder — left in place for the owner to keep or delete.
+- Harness: 41 campaign scenarios.
+Evidence: `work/live-0.6.41-endturn`, `work/live-0.6.41-endturn-2`.

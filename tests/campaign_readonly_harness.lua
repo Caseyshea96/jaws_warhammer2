@@ -308,5 +308,18 @@ for n=1,14 do tick(1) end
 local after=contents('bridge.jsonl'):match('Screen updated%.".-"text":"([^"]*)"')
 assert(after and after:find("Mission Issued!, heading",1,true)==1,contents("bridge.jsonl"):sub(-700))
 assert(dispatches==0)
+-- 0.6.41: unlabelled buttons get names from their IDs (advisor Close).
+local make=start('campaign',nil,1)
+local advice=make('tree.child4','advice_interface',1,'',true); nodes.tree.count=5
+make('tree.child4.child0','button_close',0,'',true)
+make('tree.child0.child0','button_overlay_test',0,'',true)
+begin(); for n=1,12 do tick(1) end
+for n=1,4 do fire('ShortcutTriggered',{string='script_F2'}) end
+local heard=contents('bridge.jsonl')
+assert(heard:find('Close advice, button, ',1,true),heard)
+assert(not heard:find('Overlay test',1,true),'Test buttons stay hidden')
+fire('ShortcutTriggered',{string='script_F3'})
+for n=1,4 do if contents('bridge.jsonl'):match('"text":"([^"]*)"}\n$'):find('Close advice',1,true)==1 then break end; fire('ShortcutTriggered',{string='script_F2'}) end
+fire('ShortcutTriggered',{string='script_F4'}); assert(clicked=='tree.child4.child0','Close advice can be pressed')
 io=saved_io;os.date=saved_date
 print('PASS: ' .. scenarios .. ' campaign diagnostic scenarios; HUD readiness, scoped discovery, typed failures, capture protocol, replay/generation/lease guards, limits, cancellation and zero clicks')

@@ -162,7 +162,7 @@ authorized scope.
 - Verify each major transition before continuing.
 - Never repeatedly click a control without checking the resulting state.
 - If the same launch step fails twice, investigate rather than retrying blindly.
-- Preserve the last known working build (0.6.40; before it 0.6.39) as the rollback.
+- Preserve the last known working build (0.6.41; before it 0.6.40) as the rollback.
 - Do not delete game saves or unrelated configuration files.
 - Distinguish launcher failures, mod-loading failures, game crashes, and
   accessibility integration failures.
@@ -174,6 +174,7 @@ authorized scope.
 
 ### Blocked actions
 
+Ending a turn makes the game autosave (save_games); tell the owner.
 Lord selection and Start Campaign (always confirmed) are unblocked (owner,
 October 29). Before a live campaign start, back up save_games and
 advice_history. Campaign HUD buttons and tabs are allowed (End Turn/Quit/Exit/Load confirmed).
