@@ -1,15 +1,38 @@
 param([string]$GamePath, [switch]$NoShortcut)
 $ErrorActionPreference = 'Stop'
 function Get-Hash([string]$Path) { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+function Test-GameFolder([string]$Path) {
+    return $Path -and
+        (Test-Path -LiteralPath (Join-Path $Path 'Warhammer2.exe') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $Path 'data') -PathType Container)
+}
 try {
     $manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'manifest.json') -Raw | ConvertFrom-Json
     # Only fixed local filenames from our package can be installed.
-    $expectedNames = @('jaws_access.pack','Companion.ps1','Bridge.cs','Native.cs','HotkeyPolicy.cs','Protocol.ps1','Uninstall.ps1','README.txt','Start Pilot.cmd','Uninstall.cmd')
+    $expectedNames = @('jaws_access.pack','Companion.ps1','Bridge.cs','NvdaController.cs','Protocol.ps1','Uninstall.ps1','README.txt','Start Pilot.cmd','Uninstall.cmd')
+    if ($manifest.automation_protocol -eq 1) { $expectedNames += 'Automation.ps1' }
+    if ($manifest.screen_reader -eq 'NVDA') {
+        $expectedNames += @('nvdaControllerClient.dll','LICENSE-NVDA-CONTROLLER.txt','warhammer2-quiet-mode-0.1.0.nvda-addon')
+    } else {
+        $expectedNames += @('Native.cs','HotkeyPolicy.cs')
+    }
     foreach ($name in $expectedNames) {
         $expected = $manifest.files.$name
         if (-not $expected -or (Get-Hash (Join-Path $PSScriptRoot $name)) -ne $expected) { throw "Package verification failed: $name" }
     }
     if (Get-Process -Name 'Warhammer2' -ErrorAction SilentlyContinue) { throw 'Close Warhammer II before installing.' }
+    if (-not $GamePath) {
+        # Resolve the standard Steam locations first. This avoids a prompt on
+        # the normal 64-bit Windows installation used by the pilot tester.
+        $standardRoots = @(
+            [Environment]::GetFolderPath('ProgramFilesX86'),
+            [Environment]::GetFolderPath('ProgramFiles')
+        ) | Where-Object { $_ } | Select-Object -Unique
+        foreach ($programRoot in $standardRoots) {
+            $normal = Join-Path $programRoot 'Steam\steamapps\common\Total War WARHAMMER II'
+            if (Test-GameFolder $normal) { $GamePath = $normal; break }
+        }
+    }
     if (-not $GamePath) {
         $roots = @()
         $steam = Get-ItemProperty -LiteralPath 'HKCU:\Software\Valve\Steam' -ErrorAction SilentlyContinue
@@ -27,7 +50,7 @@ try {
         }
         $candidates = @($roots | Select-Object -Unique | ForEach-Object {
             Join-Path $_ 'steamapps/common/Total War WARHAMMER II'
-        } | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'Warhammer2.exe') })
+        } | Where-Object { Test-GameFolder $_ })
         if ($candidates.Count -eq 1) { $GamePath = $candidates[0] }
         else { $GamePath = Read-Host 'Enter the game folder (Steam > Manage > Browse local files)' }
     }
@@ -35,6 +58,7 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $GamePath 'Warhammer2.exe') -PathType Leaf)) { throw 'Windows Warhammer2.exe not found.' }
     $data = Join-Path $GamePath 'data'
     if (-not (Test-Path -LiteralPath $data -PathType Container)) { throw 'Game data directory missing.' }
+    Write-Host "Using game folder: $GamePath"
     $base = Join-Path $env:LOCALAPPDATA 'JawsWarhammer2'
     [void][IO.Directory]::CreateDirectory($base)
     # Refuse to replace files while the companion owns its lock.
@@ -87,14 +111,19 @@ try {
             try {
                 $shell = New-Object -ComObject WScript.Shell
                 $desktop = [Environment]::GetFolderPath('Desktop')
-                $shortcut = $shell.CreateShortcut((Join-Path $desktop 'Warhammer JAWS Pilot.lnk'))
+                $shortcutName = $(if ($manifest.screen_reader -eq 'NVDA') { 'Warhammer NVDA Pilot.lnk' } else { 'Warhammer JAWS Pilot.lnk' })
+                $shortcut = $shell.CreateShortcut((Join-Path $desktop $shortcutName))
                 $shortcut.TargetPath = Join-Path $app 'Start Pilot.cmd'
                 $shortcut.WorkingDirectory = $app
                 $shortcut.Save()
             } catch { Write-Host 'Desktop shortcut unavailable; use Start Pilot.cmd in the installed App folder.' }
         }
         Write-Host "Installed: $app"
-        Write-Host 'Start JAWS. Run Start Pilot.cmd (or the desktop shortcut). Test JAWS, then launch the game.'
+        $readerName = $(if ($manifest.screen_reader -eq 'NVDA') { 'NVDA' } else { 'JAWS' })
+        Write-Host ("Start $readerName. Run Start Pilot.cmd (or the desktop shortcut). Test $readerName, then launch the game.")
+        if ($manifest.screen_reader -eq 'NVDA') {
+            Write-Host 'Before testing, install warhammer2-quiet-mode-0.1.0.nvda-addon from the App folder and restart NVDA.'
+        }
         Write-Host 'Enable jaws_access in the existing game launcher Mod Manager. Do not enable jaws_probe.'
         Write-Host 'This is an experimental integration pilot; Windows/game/co-op results still need testing.'
     } finally { $lock.Dispose() }

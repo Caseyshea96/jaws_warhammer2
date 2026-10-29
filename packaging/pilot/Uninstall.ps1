@@ -15,7 +15,11 @@ try {
             }
             Remove-Item -LiteralPath $target
         }
-        foreach ($name in @('Companion.ps1','Bridge.cs','Native.cs','HotkeyPolicy.cs','Protocol.ps1','Uninstall.ps1','README.txt','Start Pilot.cmd','Uninstall.cmd')) {
+        $installedNames = @('Companion.ps1','Bridge.cs','NvdaController.cs','Protocol.ps1','Uninstall.ps1','README.txt','Start Pilot.cmd','Uninstall.cmd')
+        if ($manifest.automation_protocol -eq 1) { $installedNames += 'Automation.ps1' }
+        if ($manifest.screen_reader -eq 'NVDA') { $installedNames += @('nvdaControllerClient.dll','LICENSE-NVDA-CONTROLLER.txt','warhammer2-quiet-mode-0.1.0.nvda-addon') }
+        else { $installedNames += @('Native.cs','HotkeyPolicy.cs') }
+        foreach ($name in $installedNames) {
             $path = Join-Path $app $name
             if ((Test-Path -LiteralPath $path) -and (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -eq $manifest.files.$name) {
                 Remove-Item -LiteralPath $path
@@ -24,7 +28,8 @@ try {
         foreach ($name in @('config.json','manifest.json')) { Remove-Item -LiteralPath (Join-Path $app $name) -ErrorAction SilentlyContinue }
         if (@(Get-ChildItem -LiteralPath $app -Force).Count -eq 0) { Remove-Item -LiteralPath $app }
         if ($env:OS -eq 'Windows_NT') {
-            $shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Warhammer JAWS Pilot.lnk'
+            $shortcutName = $(if ($manifest.screen_reader -eq 'NVDA') { 'Warhammer NVDA Pilot.lnk' } else { 'Warhammer JAWS Pilot.lnk' })
+            $shortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) $shortcutName
             if (Test-Path -LiteralPath $shortcutPath) {
                 $shell = New-Object -ComObject WScript.Shell
                 if ($shell.CreateShortcut($shortcutPath).TargetPath -eq (Join-Path $app 'Start Pilot.cmd')) { Remove-Item -LiteralPath $shortcutPath }
@@ -32,6 +37,7 @@ try {
         }
         Remove-Item -LiteralPath (Join-Path $base 'receipt.json')
         Write-Host 'Pilot removed. Saves, other mods, diagnostics and the old probe backup were preserved.'
+        if ($manifest.screen_reader -eq 'NVDA') { Write-Host 'Remove Warhammer II Quiet Mode separately in NVDA Add-on Manager, then restart NVDA.' }
     } finally { $lock.Dispose() }
     exit 0
 } catch { Write-Host ('Uninstall failed: ' + $_.Exception.Message); exit 1 }

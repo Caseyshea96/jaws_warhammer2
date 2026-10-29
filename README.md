@@ -1,14 +1,14 @@
-# Warhammer II JAWS co-op pilot
+# Warhammer II screen-reader accessibility pilot
 
-Experimental Windows accessibility integration for a two-player Total War: WARHAMMER II campaign and its battles. Casey plays the Windows game through Proton; their friend uses Windows and JAWS.
+Experimental Windows accessibility integration for Total War: WARHAMMER II.
 
-**Current status:** JAWS speech and shortcut delivery have been observed on Windows, but main-menu UI traversal still fails. Campaign/battle accessibility and co-op compatibility are unverified. Development is waiting for the native UI diagnostic log; mock tests are not proof of engine compatibility.
+**Current verified status:** Native automation in 0.6.13 traverses all 22 main-menu controls with next/previous wrap, opens New Campaign, reads all 17 campaign-selection entries, and opens Select Lord through the guarded Continue button. The four-second confirmation clock has passed a live expiry check with no click. Start Campaign, gameplay and co-op remain blocked. The Graphics checkpoint is complete.
 
-The current investigation uses the read-only **0.3.0-diagnostic** package. See [diagnostic instructions](diagnostics/README.txt). It compares native UI reads without issuing game commands, and its launcher disables companion global hotkeys. Existing diagnostic test packages remain separate from development builds.
+**Installed development preview:** 0.6.14 adds a tested read-only Lord setup information browser. Five bounded discovery pages captured 131 visible nodes and 34 text entries, including Tyrion, High Elves, Eataine, effects and difficulty information. All 34 entries and both wrap directions passed native testing; F4 on Start Campaign was blocked without a click. The original scanner/logger and four activation targets are preserved. All 332 Lua scenarios and package/installer checks pass. Test automation is disabled after use. Injected keys, intro skipping and automatic refresh after manual lord/settings changes remain unresolved. See the [automation session handoff](docs/AUTOMATION_SESSION.md). Prior previews and the read-only diagnostic remain rollback paths.
 
-The **0.2.5-dev** source includes control-identity checks, UI lifecycle invalidation, foreground-scoped hotkeys and speech-batch preservation. These fixes have automated coverage but do not resolve the unverified native-reading issue.
+The older **0.2.5-dev** source includes control-identity checks, UI lifecycle invalidation, foreground-scoped hotkeys, and speech-batch preservation. It is not a verified playable release.
 
-Build artifacts are excluded from Git. Build locally with `bash tools/build-pilot.sh --diagnostic` and `python3 tools/package-pilot.py --diagnostic` after setting up the project-local tools described in the documentation. The resulting ZIP contains the installer and companion; the recipient does not need development tools. Do not enable the diagnostic and another pilot/probe simultaneously.
+Build artifacts are excluded from Git. Build locally with `bash tools/build-pilot.sh --diagnostic` and `python3 tools/package-pilot.py --diagnostic` after setting up the project-local tools described in the documentation. The resulting ZIP contains the installer, companion, and licensed NVDA controller runtime. Do not enable the diagnostic and another pilot/probe simultaneously.
 
 See [current progress and validation](docs/CURRENT_PROGRESS.md), [input review](docs/JAWS_INPUT_REVIEW.md), and [engine research](docs/ENGINE_RESEARCH.md).
 

@@ -1,6 +1,6 @@
 # Co-op implementation backlog
 
-All items are pending. This is an implementation sequence, not a claim of supported game behavior.
+This is an implementation sequence, not a claim of supported gameplay. Installed 0.6.14 preserves the verified native menu/campaign route and adds a live-tested 34-entry read-only Lord setup information browser. Five bounded pages captured the visible panel without exhausting either log budget; F4 on Start Campaign was blocked. 332 Lua scenarios and package/installer checks pass. Next group and label selected lord, race, faction, effects and difficulty fields more clearly and handle snapshot refresh after manual changes. Lord/campaign selection changes, settings changes, Start Campaign, gameplay and co-op remain blocked. Injected keys, intro skipping, Mod Manager access and graceful shutdown remain separate gates. See CURRENT_PROGRESS.md for evidence.
 
 ## 1. Establish the build and tools
 
@@ -27,6 +27,8 @@ Inspect one campaign panel and one unit card. Capture representative sanitized t
 Deliverable: a game-to-companion spoken message and a documented list of supported contexts.
 
 ## 4. Two small interactive slices
+
+Before either gameplay slice, retain the verified Graphics checkpoint and the captured main-menu New Campaign route. The current frontend gate is Continue on the exact captured Vortex selection; use its next native capture to map faction/lord/difficulty setup before enabling Start Campaign. The original single-button Graphics guard was established on the captured `button_graphics` component. The gate also requires its captured WH2 1.12.1 ancestry and zero-based indexes plus the spoken label `Graphics`, so a duplicate component ID on another frontend screen fails closed. It requires a second F4 within four seconds after identity and UI-generation revalidation. Campaign, battle, shortcuts, dialogs and automatic Escape remain blocked. Package this path only after the 0.4.3 NVDA quiet-mode test proves that controller speech survives per-application sleep mode and that the recurring UI Automation/watchdog noise is reduced.
 
 Campaign: on the local player's active turn, navigate one settlement panel, read an option and its cost/state, activate a normal action, and announce success only when observed. Test back/cancel and modal dialogs. Prefer a reversible UI action during initial debugging before a paid gameplay action.
 

@@ -1,4 +1,14 @@
-# Warhammer II → JAWS: research and implementation plan
+# Warhammer II accessibility: research and implementation plan
+
+## Current Windows/NVDA status
+
+The active screen-reader target is now NVDA, with keyboard-only operation. The 0.4.2 live frontend test spoke all 22 controls and supported reverse wraparound. The 0.4.3 read-only package adds the separately removable NVDA quiet-mode add-on; its live speech and stability test is pending. Normal Steam-path discovery is verified on this Windows PC.
+
+The next interactive prototype permits only the captured Graphics button, with identity revalidation and a second F4 within four seconds. Browsing away cancels confirmation; expiry or a backward clock change requires a fresh confirmation. This prototype is not included in 0.4.3. After the speech/stability test, verify opening Graphics and returning with the game's Escape key, then develop campaign setup and a settlement interaction alongside unit reporting and battle commands. Actual campaign and battle play, including co-op, remain the acceptance target.
+
+Use [current progress](docs/CURRENT_PROGRESS.md) for release status. The earlier dated notes below describe the project's Linux/JAWS origins and are retained as research history; their old version numbers and unresolved frontend-reading claims do not describe the current NVDA build.
+
+## Earlier development notes
 
 Unreleased source fixes: opaque control identity validation, UI lifecycle invalidation/readiness checks, and frontend-only Escape action are implemented with regression tests. Native Windows menu reading remains unresolved; the diagnostic package is unchanged.
 

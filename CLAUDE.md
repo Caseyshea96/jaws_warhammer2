@@ -1,0 +1,134 @@
+# JAWS/NVDA accessibility for Total War: Warhammer II
+
+Screen-reader access mod. The in-game Lua script writes speech requests to a
+bridge file; the PowerShell companion forwards them to NVDA/JAWS.
+
+## Where things are
+
+- `diagnostics/graphics_preview.lua` — the current runtime. The build packs it
+  as `script/_lib/mod/jaws_access.lua`, so in-game errors that name
+  `jaws_access.lua:<line>` refer to this file.
+- `mod/script/_lib/mod/jaws_access.lua` — older interactive pilot source.
+- `companion/` — Companion.ps1 (speech bridge), Automation.ps1 (test channel).
+- `packaging/pilot/` — Install.ps1 / Uninstall.ps1 shipped in the ZIP.
+- `tests/` — Lua harnesses and Python/PowerShell checks.
+- `local/tools/` — Lua 5.1.5, RPFM 4.5.4, NVDA controller client (git-ignored).
+- `work/` — live-test evidence, candidate sources, pre-install backups
+  (git-ignored; contains game-derived files — never commit).
+- `outputs/` — packaged ZIPs, test reports, `failed-candidates/` (git-ignored).
+
+`work/` and `outputs/` were copied from the earlier Codex workspace
+`C:\Users\shea9\Documents\Codex\2026-10-26\resume-working-on-this-2\`, which is
+left intact. Paths like `work/live-0.6.17-lord-discovery` in the docs resolve here.
+
+## Current state — read before working
+
+- `docs/AUTOMATION_SESSION.md` — full session history and current stop point.
+- `docs/FINAL_LORD_READER_TEST.md` — latest live result (0.6.17 failed).
+- `docs/FRONTEND_AUTOMATION.md` — the opt-in automation channel protocol.
+
+Accepted build: **0.6.14** (installed, in source and packaging). 0.6.15–0.6.17
+are failed candidates; never deploy them as accepted builds.
+
+## Building and testing
+
+- Python: use the `py` launcher (`py -3`). Bare `python` on this machine is the
+  Microsoft Store stub and fails. Build scripts auto-detect Python when
+  `-Python` is omitted.
+- Build the current runtime:
+  `powershell -File tools/build-graphics-preview-windows.ps1`
+  (runs `tests/check_graphics_preview.py`, packs, round-trips, packages to ZIP).
+- Lua tests run on `local/tools/lua-5.1.5-windows`. Stock Lua is not the game
+  engine: WH2 uses single-precision numbers and may differ in string behaviour.
+  A fixture pass is not live proof.
+- Read desktop logs and game processes outside the sandbox; sandboxed reads can
+  show stale files and miss the game process.
+
+## Driving the game
+
+- Injected keystrokes (F2/F3/F4, Escape, Space) do **not** reach the game. Drive
+  navigation with the opt-in automation channel (`Automation.ps1 -Action
+  Enable/Status/Next/Previous/Discover/Activate/Disable`), not key injection.
+- Use computer use only to verify what is on screen and to operate Steam and
+  TW Mod Manager.
+- Logs: `%LOCALAPPDATA%\JawsWarhammer2\native-ui-graphics-preview.log`,
+  `native-ui-lord-discovery.jsonl`, `bridge.jsonl`.
+
+## Autonomous build, launch, and testing workflow
+
+### Default launch configuration
+
+Steam launches Warhammer II through **TW Mod Manager (Early Access)** by
+default. This is the required launch method for automated testing.
+
+- Do not use "Play Game (Skip Launcher)" unless explicitly requested.
+- Do not repeatedly change Steam launch preferences.
+- Do not recreate or modify the mod profile unless verification fails.
+- Use the existing working mod configuration whenever possible.
+
+### Mod Manager procedure
+
+1. Wait for TW Mod Manager to appear.
+2. Identify the installed `jaws_access.pack`.
+3. Verify the current mod is enabled.
+4. Verify that exactly one valid accessibility mod is activated.
+5. If a stale entry is marked "Missing," remove only that profile reference
+   after confirming the valid entry.
+6. Preserve DirectX 11.
+7. Click the green PLAY button once.
+8. After the splash screens an intro video plays; Escape skips it when the
+   game accepts input (injected Escape has not worked reliably).
+9. Wait for the actual game process and main menu. UI readiness alone does not
+   prove the video ended.
+
+Do not confuse closing the launcher with successfully launching the game.
+
+### Autonomous development loop
+
+When autonomous testing is authorized:
+
+1. Inspect the relevant source files.
+2. Implement the required changes.
+3. Build the updated project and verify the build succeeded.
+4. Stop the game when necessary.
+5. Install the updated accessibility components (keep a pre-install backup).
+6. Enable an automation lease with the game closed.
+7. Launch through Steam and TW Mod Manager.
+8. Navigate to the relevant test screen.
+9. Test functionality; capture logs and diagnostic evidence under `work/`.
+10. Identify failures and make corrections.
+11. Repeat until tests pass or a genuine blocker is identified.
+
+Do not request approval between ordinary development iterations within the
+authorized scope.
+
+### Reliability and recovery
+
+- Prefer detecting windows and processes over fixed delays.
+- Verify each major transition before continuing.
+- Never repeatedly click a control without checking the resulting state.
+- If the same launch step fails twice, investigate rather than retrying blindly.
+- Preserve the last known working build (0.6.14) as the rollback.
+- Do not delete game saves or unrelated configuration files.
+- Distinguish launcher failures, mod-loading failures, game crashes, and
+  accessibility integration failures.
+- Never claim successful testing without verifying actual game behavior. A
+  build, an acknowledgement, a native click return or NVDA code 0 alone is not
+  proof.
+- After every session: disable the lease, close owned game/companion processes
+  (verify PID plus executable path before stopping), leave NVDA untouched.
+
+### Blocked actions
+
+Starting a campaign, changing lord/settings, gameplay and co-op stay blocked
+unless the owner explicitly unblocks them.
+
+### Completion criteria
+
+A test cycle is complete only when:
+
+1. The updated build was installed successfully.
+2. Warhammer II launched with the correct accessibility mod.
+3. The expected game screen was reached.
+4. The intended accessibility behavior was tested.
+5. Results and any remaining issues were documented in `docs/`.

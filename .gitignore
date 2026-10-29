@@ -15,3 +15,8 @@ luac.out
 *.luac
 .agents/
 .codex/
+
+# Live-test evidence, backups and packaged builds (copied from the earlier
+# Codex workspace; contains game-derived files, so never commit)
+work/
+outputs/

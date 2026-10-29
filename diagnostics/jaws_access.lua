@@ -1,7 +1,33 @@
 -- Read-only frontend diagnostic. Never activates UI or sends game shortcuts.
 -- Do not overwrite frontend evidence when campaign/battle creates a Lua context.
 if core:is_campaign() or core:is_battle() then return end
-local sequence, runs, armed = 0, 0, false
+local sequence, runs = 0, 0
+local controls, control_index = {}, 0
+local control_ids = {
+    button_new_campaign = true,
+    button_start_campaign = true,
+    button_load_campaign = true,
+    button_multiplayer_campaign = true,
+    button_movie_player = true,
+    button_quest_battle = true,
+    button_practice_battle = true,
+    button_multiplayer_battle = true,
+    button_quick_battle = true,
+    button_leaderboards = true,
+    button_replays = true,
+    button_lab_battle = true,
+    button_graphics = true,
+    button_audio = true,
+    [' button_audio'] = true,
+    button_controls = true,
+    button_ui = true,
+    button_gamma = true,
+    button_credits = true,
+    button_support = true,
+    button_tw_academy = true,
+    button_tw_blog = true,
+    button_quit = true
+}
 local session = 'diagnostic:' .. tostring({}) .. ':' .. tostring(os.clock())
 local log_path, bridge_path
 local log_failed = false
@@ -31,7 +57,7 @@ for _, base in ipairs(bases) do
     local path = base .. 'native-ui-diagnostic.log'
     local f = io.open(path, 'w')
     if f then
-        f:write('WH2 native UI diagnostic 0.3.0-diagnostic\n'); f:close()
+        f:write('WH2 native UI diagnostic 0.4.3-nvda-diagnostic\n'); f:close()
         log_path = path; bridge_path = base .. (base == '' and 'jaws_access.jsonl' or 'bridge.jsonl')
         local bridge = io.open(bridge_path, 'w'); if bridge then bridge:close() end
         break
@@ -67,8 +93,10 @@ local function sample(label, node, children)
     observe(label .. '.GetStateText', function() local v = node:GetStateText(); return v end)
     observe(label .. '.CurrentState', function() local v = node:CurrentState(); return v end)
     observe(label .. '.Address', function() local v = node:Address(); return v end)
-    if children and ok and type(count) == 'number' and count >= 0 and count < math.huge and count == math.floor(count) then
-        for i = 0, math.min(count, 8) - 1 do
+    if children and ok and type(count) == 'number' and count == count and count >= 0 and count % 1 == 0 then
+        local limit = count
+        if limit > 8 then limit = 8 end
+        for i = 0, limit - 1 do
             local prefix = label .. '.child' .. i
             local found, address = observe(prefix .. '.Find', function() local v = node:Find(i); return v end)
             if found and address then
@@ -78,29 +106,112 @@ local function sample(label, node, children)
         end
     else log(label .. '.children.skipped', 'not requested or invalid count') end
 end
-local function capture(source, component)
-    if runs >= 6 then return end
+local function clean(value)
+    if type(value) ~= 'string' then return '' end
+    return value:gsub('%[%[.-%]%]', ' '):gsub('<[^>]*>', ' ')
+        :gsub('[%z\1-\31]', ' '):gsub('%s+', ' '):gsub('^%s+', ''):gsub('%s+$', '')
+end
+local function capture_tree(root)
+    local visited = 0
+    controls = {}
+    local function descendant_label(node, depth)
+        if depth <= 0 then return '' end
+        local count_ok, count = pcall(function() return node:ChildCount() end)
+        if not count_ok or type(count) ~= 'number' or count < 0 or count % 1 ~= 0 then return '' end
+        if count > 12 then count = 12 end
+        for i = 0, count - 1 do
+            local ok, child = pcall(function() return UIComponent(node:Find(i)) end)
+            if ok and child then
+                local visible_ok, visible = pcall(function() return child:Visible(true) end)
+                if visible_ok and visible == true then
+                    local text_ok, text = pcall(function() return child:GetStateText() end)
+                    text = text_ok and clean(text) or ''
+                    if text ~= '' then return text end
+                    local tip_ok, tip = pcall(function() return child:GetTooltipText() end)
+                    tip = tip_ok and clean(tip) or ''
+                    if tip ~= '' then return tip end
+                    local nested = descendant_label(child, depth - 1)
+                    if nested ~= '' then return nested end
+                end
+            end
+        end
+        return ''
+    end
+    local function walk(node, label, depth)
+        if visited >= 200 or depth > 20 then log(label .. '.bounded', 'node or depth limit'); return end
+        visited = visited + 1
+        log(label .. '.object', node)
+        local id_ok, id = observe(label .. '.Id', function() local v = node:Id(); return v end)
+        local visible_ok, visible = observe(label .. '.Visible', function() local v = node:Visible(true); return v end)
+        local interactive_ok, interactive = observe(label .. '.IsInteractive', function() local v = node:IsInteractive(); return v end)
+        local text_ok, state_text = observe(label .. '.GetStateText', function() local v = node:GetStateText(); return v end)
+        local tip_ok, tooltip = observe(label .. '.GetTooltipText', function() local v = node:GetTooltipText(); return v end)
+        local state_ok, state = observe(label .. '.CurrentState', function() local v = node:CurrentState(); return v end)
+        observe(label .. '.Address', function() local v = node:Address(); return v end)
+        local count_ok, count = observe(label .. '.ChildCount', function() local v = node:ChildCount(); return v end)
+        if not visible_ok or visible ~= true then log(label .. '.children.skipped', 'not visible'); return end
+        if not count_ok or type(count) ~= 'number' or count ~= count or count < 0 or count % 1 ~= 0 then
+            log(label .. '.children.skipped', 'invalid count'); return
+        end
+        local limit = count
+        if limit > 100 then limit = 100 end
+        for i = 0, limit - 1 do
+            local child_label = label .. '.child' .. i
+            local found, address = observe(child_label .. '.Find', function() local v = node:Find(i); return v end)
+            if found and address then
+                local converted, child = observe(child_label .. '.Convert', function() local v = UIComponent(address); return v end)
+                if converted and child then walk(child, child_label, depth + 1) end
+            end
+        end
+        log(label .. '.classify.START', true)
+        local classified, classify_error = pcall(function()
+            if id_ok and type(id) == 'string' and control_ids[id] == true
+                and interactive_ok and interactive == true then
+                local name = text_ok and clean(state_text) or ''
+                if name == '' then name = tip_ok and clean(tooltip) or '' end
+                if name == '' then name = descendant_label(node, 2) end
+                if name == '' then name = id end
+                controls[#controls + 1] = {name = name, state = state_ok and clean(state) or ''}
+            end
+        end)
+        if classified then log(label .. '.classify.RESULT', true)
+        else log(label .. '.classify.ERROR', classify_error) end
+    end
+    walk(root, 'tree', 0)
+    log('tree.nodes', visited)
+    log('tree.controls', #controls)
+end
+local function capture(source)
+    if runs >= 1 then return end
     runs = runs + 1
     log('capture', runs); log('source', source)
-    local ok, ready = observe('core.is_ui_created', function() local v = core:is_ui_created(); return v end)
-    if ok and ready == true then
-        local got, node = observe('core.get_ui_root', function() local v = core:get_ui_root(); return v end)
-        if got and node then sample('root', node, true) end
-    else log('root.skipped', 'UI not ready') end
-    if component then
-        local ok_node, node = observe('event.Convert', function() local v = UIComponent(component); return v end)
-        if ok_node and node then sample('event', node, false) end
-    end
+    local completed, failure = pcall(function()
+        local ok, ready = observe('core.is_ui_created', function() local v = core:is_ui_created(); return v end)
+        if ok and ready == true then
+            local got, node = observe('core.get_ui_root', function() local v = core:get_ui_root(); return v end)
+            if got and node then sample('root', node, false); capture_tree(node) end
+        else log('root.skipped', 'UI not ready') end
+    end)
+    if not completed then log('capture.ERROR', failure) end
     log('capture.COMPLETE', runs)
     if log_failed or not log_path then speak('Diagnostic file could not be saved. Check the game folder and AppData permissions.'); return end
-    speak('Read-only UI diagnostic capture ' .. runs .. ' saved. Send native-ui-diagnostic.log. No game action was sent.')
+end
+local function announce_control(step)
+    if #controls == 0 then speak('No menu controls found. Send native-ui-diagnostic.log. No game action was sent.'); return end
+    if control_index == 0 then control_index = step > 0 and 1 or #controls
+    else control_index = ((control_index - 1 + step) % #controls) + 1 end
+    local item = controls[control_index]
+    local state = item.state ~= '' and (', ' .. item.state) or ''
+    speak('Controls, ' .. control_index .. ' of ' .. #controls .. ': ' .. item.name .. state .. '. Read only; no game action was sent.')
 end
 if not core:is_campaign() and not core:is_battle() then
     core:add_ui_created_callback(function() log('lifecycle.created', true) end)
-    core:add_ui_destroyed_callback(function() armed = false; log('lifecycle.destroyed', true) end)
-    core:add_listener('jaws_diagnostic_key', 'ShortcutTriggered', function(c) return c.string == 'script_F2' end,
-        function() capture('shortcut'); armed = runs < 6 end, true)
-    core:add_listener('jaws_diagnostic_hover', 'ComponentMouseOn', function() return armed end,
-        function(c) armed = false; capture('mouse_event', c.component) end, true)
-    speak('JAWS read-only diagnostic 0.3.0. In the main menu press F2, then move the mouse over one menu button. No activation keys are enabled.')
+    core:add_ui_destroyed_callback(function() log('lifecycle.destroyed', true) end)
+    core:add_listener('jaws_diagnostic_key', 'ShortcutTriggered',
+        function(c) return c.string == 'script_F2' or c.string == 'script_F3' end,
+        function(c)
+            if runs == 0 then capture('shortcut') end
+            if c.string == 'script_F2' then announce_control(1) else announce_control(-1) end
+        end, true)
+    speak('NVDA read-only keyboard browser 0.4.3 with quiet mode. In the main menu tap F2 for the next control or F3 for the previous control. No mouse, activation, or game command is used.')
 else speak('This diagnostic only inspects the frontend. Return to the main menu.') end

@@ -1,0 +1,970 @@
+-- Lua 5.1 fixtures reconstructed from the successful native 0.5.3 capture.
+local real_io, real_time, real_date = io, os.time, os.date
+local real_getenv = os.getenv
+local fixture = dofile('tests/fixtures/frontend_menu_0_5_3.lua')
+local graphics_fixture = dofile('tests/fixtures/graphics_basic_0_5_6.lua')
+local captured_advanced_fixture = dofile('tests/fixtures/graphics_advanced_0_5_8.lua')
+local windowed_fixture = dofile('tests/fixtures/graphics_basic_windowed_0_5_9.lua')
+local lord_fixture = dofile('tests/fixtures/lord_discovery_synthetic.lua')
+local graphics_key = 'tree.child2.child1.child0.child0.child2.child0.child1'
+local nodes, listeners, files, dispatches, created, destroyed, ready, now, context_mode
+local read_hook, click_hook, file_failure, speech_write_throw
+local lord_write_failure
+local automation_poll, automation_timer, automation_base, automation_status_failure, automation_timer_failure
+local scenarios = 0
+local function build_nodes(layout)
+    local result = {}
+    for prefix, row in pairs(layout) do
+        local n = {data = {}, children = {}, faults = {}, address = newproxy(), prefix = prefix}
+        for k, v in pairs(row) do n.data[k] = v end
+        local function read(self, method)
+            if read_hook then read_hook(self, method) end
+            if self.faults[method] == 'throw' then error('native read failure: ' .. method) end
+            if self.faults[method] == 'function' then return function() end end
+            if self.faults[method] == 'nil' then return nil end
+            if method == 'Address' then return self.address end
+            return self.data[method]
+        end
+        function n:Id() return read(self, 'Id') end
+        function n:Visible() return read(self, 'Visible') end
+        function n:IsInteractive() return read(self, 'IsInteractive') end
+        function n:GetStateText() return read(self, 'GetStateText') end
+        function n:GetTooltipText() return read(self, 'GetTooltipText') end
+        function n:CurrentState() return read(self, 'CurrentState') end
+        function n:ChildCount() return read(self, 'ChildCount') end
+        function n:Address() return read(self, 'Address') end
+        function n:Find(i) return self.children[i] end
+        function n:SimulateLClick()
+            dispatches[#dispatches+1] = self.prefix
+            if click_hook then click_hook() end
+        end
+        result[prefix] = n
+    end
+    for prefix, n in pairs(result) do
+        local parent, i = prefix:match('^(.*)%.child(%d+)$')
+        if parent then result[parent].children[tonumber(i)] = n end
+    end
+    return result
+end
+local function start(mode, layout, enable_automation, setup_status_failure, environment_disappears, setup_timer_failure, initial_time)
+    scenarios = scenarios + 1
+    nodes, listeners, files, dispatches = {}, {}, {}, {}
+    ready, now, context_mode = true, initial_time or 1000, mode or 'frontend'
+    read_hook, click_hook, file_failure, speech_write_throw = nil, nil, nil, false
+    lord_write_failure=false
+    nodes = build_nodes(layout or fixture)
+    automation_poll,automation_timer,automation_status_failure=nil,nil,setup_status_failure or false
+    get_tm=function() error('Unavailable frontend model timer must not be used') end
+    timer_manager=nil; real_timer=nil; automation_timer_failure=setup_timer_failure
+    os.getenv=real_getenv
+    automation_base=(real_getenv('LOCALAPPDATA') or '') .. '/JawsWarhammer2/'
+    if environment_disappears then
+        local lookups=0
+        os.getenv=function(name)
+            if name=='LOCALAPPDATA' then lookups=lookups+1; if lookups>2 then return nil end end
+            return real_getenv(name)
+        end
+    end
+    if enable_automation then
+        files[automation_base .. 'automation-enabled.tsv']={type(enable_automation)=='string' and enable_automation or ('WH2LEASE1\t' .. string.rep('a',32) .. '\t1060\n')}
+        real_timer={
+            unregister=function(name) assert(name=='warhammer_accessibility_automation'); automation_poll=nil end,
+            register_singleshot=function(name,interval)
+                assert(name=='warhammer_accessibility_automation' and interval==250)
+                if automation_timer_failure then error('Fixture real timer registration failed') end
+                automation_poll=function()
+                    automation_poll=nil -- one-shot is consumed before the event callback
+                    local listener=listeners[name .. '_real_timer']
+                    assert(listener and listener[1]=='RealTimeTrigger')
+                    local context={string=name}
+                    if listener[2](context) then listener[3](context) end
+                end
+            end}
+    end
+    core = {
+        is_frontend = function() return context_mode == 'frontend' end,
+        is_campaign = function() return context_mode == 'campaign' end,
+        is_battle = function() return context_mode == 'battle' end,
+        is_ui_created = function() return ready end,
+        get_ui_root = function() assert(ready); return nodes.tree end,
+        add_ui_created_callback = function(_, cb) created = cb end,
+        add_ui_destroyed_callback = function(_, cb) destroyed = cb end,
+        add_listener = function(_, name, event, condition, cb) listeners[name] = {event, condition, cb} end,
+        remove_listener = function(_,name) listeners[name]=nil end
+    }
+    UIComponent = function(value) assert(type(value)=='table' and value.prefix, 'invalid component'); return value end
+    os.time = function() return math.floor((now+64)/128)*128 end -- observed WH2 epoch precision
+    os.date = function(format) return real_date(format,now) end
+    io = {open = function(path, mode)
+        if lord_write_failure and path:find('native-ui-lord-discovery.jsonl',1,true) then return nil end
+        if file_failure and path:find('native-ui-graphics-preview.log',1,true) then return nil end
+        if mode == 'r' then
+            if not files[path] then return nil end
+            return {read=function(_,limit) return table.concat(files[path]):sub(1,limit) end,close=function() return true end}
+        end
+        if mode == 'w' then files[path] = {} end
+        return {write = function(self, text)
+            if automation_status_failure and path:find('automation-status.tsv',1,true) then error('fixture status write failure') end
+            if speech_write_throw and (path:find('bridge.jsonl',1,true) or path:find('jaws_access.jsonl',1,true)) then
+                speech_write_throw=false; error('fixture speech write exception')
+            end
+            files[path] = files[path] or {}; files[path][#files[path]+1] = text; return self end,
+            close = function() return true end}
+    end}
+    effect = {trigger_shortcut = function() error('No shortcut dispatch permitted') end}
+    dofile('diagnostics/graphics_preview.lua')
+end
+local function fire(event, context)
+    for _, listener in pairs(listeners) do
+        if listener[1] == event and (listener[2] == true or listener[2](context)) then listener[3](context) end
+    end
+end
+local function key(value) fire('ShortcutTriggered', {string=value}) end
+local function contents(suffix)
+    for path, text in pairs(files) do if path:sub(-#suffix) == suffix then return table.concat(text) end end
+    return ''
+end
+local function last()
+    local bridge = contents('bridge.jsonl')
+    if bridge == '' then bridge = contents('jaws_access.jsonl') end
+    return bridge:match('([^\n]+)\n$') or ''
+end
+local function choose_graphics()
+    for i=1,22 do
+        key('script_F2')
+        if last():find(': Graphics, active',1,true) then return end
+    end
+    error('Graphics was not found: ' .. last())
+end
+local function no_dispatch(message) assert(#dispatches == 0, message) end
+start()
+key('script_F4'); no_dispatch('No selection')
+key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
+key('script_F3'); assert(last():find('22 of 22: Quit',1,true))
+key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
+key('script_F2'); assert(last():find('Continue Campaign, inactive',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('tree.nodes\tnumber\t86',1,true))
+-- Browsing is cached; a second F2 does not rescan or change the native read order.
+local _, captures = contents('native-ui-graphics-preview.log'):gsub('capture.COMPLETE','')
+assert(captures==1)
+choose_graphics(); key('script_F4')
+assert(last():find('Press F4 again',1,true), last()); no_dispatch('First F4 only arms')
+now=1001; key('script_F4')
+assert(#dispatches==1 and dispatches[1]==graphics_key)
+assert(last():find('resulting screen is not confirmed',1,true))
+key('script_F4'); assert(#dispatches==1, 'Third F4 cannot reuse confirmation')
+-- All other classified main-menu controls remain blocked, including Continue and Quit.
+start()
+for i=1,22 do
+    key('script_F2')
+    if not last():find(': Graphics, active',1,true) and not last():find(': New Campaign, active',1,true) then
+        key('script_F4'); key('script_F4'); no_dispatch('Non-Graphics control')
+    end
+end
+-- Navigation cancels confirmation even when returning to the same entry.
+start(); choose_graphics(); key('script_F4'); key('script_F2'); key('script_F3'); key('script_F4')
+no_dispatch('Navigation cancels'); assert(last():find('Press F4 again',1,true))
+-- Timeouts and clock rollback do not send input or retain the old confirmation.
+for _, delta in ipairs({5,-1}) do
+    start(); choose_graphics(); key('script_F4'); now=now+delta; key('script_F4')
+    no_dispatch('Time changed'); assert(last():find('clock changed',1,true))
+end
+start(); choose_graphics(); key('script_F4'); now=0/0; key('script_F4'); no_dispatch('Invalid clock')
+-- Same-looking replacement native components must be rejected.
+for _, prefix in ipairs({'tree', 'tree.child2', graphics_key}) do
+    start(); choose_graphics(); key('script_F4'); nodes[prefix].address=newproxy(); key('script_F4')
+    no_dispatch('Stale native identity')
+end
+for _, method in ipairs({'Visible','IsInteractive','CurrentState','GetStateText','GetTooltipText','Address','ChildCount','Id'}) do
+    for _, fault in ipairs({'throw','function','nil'}) do
+        start(); choose_graphics(); key('script_F4'); nodes[graphics_key].faults[method]=fault; key('script_F4')
+        no_dispatch('Failed required read: '..method..'/'..fault)
+    end
+end
+-- Persistent malformed values cannot authorize matching fallback snapshots.
+start(); nodes[graphics_key].faults.GetTooltipText='function'; choose_graphics()
+key('script_F4'); key('script_F4'); no_dispatch('Persistent bad tooltip')
+-- Known enabled/visible properties and every ancestor remain required.
+for _, prefix in ipairs({'tree.child2', graphics_key}) do
+    start(); choose_graphics(); key('script_F4'); nodes[prefix].data.Visible=false; key('script_F4')
+    no_dispatch('Hidden ancestor or leaf')
+end
+for _, property in ipairs({'IsInteractive','CurrentState','Id','GetStateText','GetTooltipText'}) do
+    start(); choose_graphics(); key('script_F4')
+    nodes[graphics_key].data[property] = property=='IsInteractive' and false or 'changed'
+    key('script_F4'); no_dispatch('Changed Graphics property')
+end
+-- Layout/template verification applies even when a panel was already present at browse time.
+start(); nodes.tree.data.ChildCount=6; choose_graphics(); key('script_F4'); key('script_F4')
+no_dispatch('Preexisting extra panel')
+start(); choose_graphics(); key('script_F4'); nodes.tree.data.ChildCount=6; key('script_F4')
+no_dispatch('New unannounced panel')
+start(); nodes[graphics_key].data.Id='button_audio'; key('script_F2'); key('script_F4'); key('script_F4')
+no_dispatch('Duplicate/mismatched id')
+-- Native UI recreation, destruction and panel callbacks invalidate cached selection.
+for _, event in ipairs({'create','destroy','PanelOpenedCampaign','PanelClosedCampaign'}) do
+    start(); choose_graphics(); key('script_F4')
+    if event=='create' then created() elseif event=='destroy' then ready=false; destroyed()
+    else fire(event, {string='dialog'}) end
+    key('script_F4'); no_dispatch('Lifecycle cancellation: '..event)
+end
+-- Invalidation during the fresh scan or final path resolution must block input.
+start(); choose_graphics(); key('script_F4')
+read_hook=function(n, method) if method=='ChildCount' then read_hook=nil; created() end end
+key('script_F4'); no_dispatch('UI recreation during scan')
+start(); choose_graphics(); key('script_F4')
+local reads=0
+read_hook=function(n, method)
+    if n.prefix==graphics_key and method=='Address' then
+        reads=reads+1
+        if reads==2 then n.address=newproxy() end
+    end
+end
+key('script_F4'); no_dispatch('Leaf replaced during final resolution')
+-- A click that recreates the UI is still reported only as input sent.
+start(); choose_graphics(); key('script_F4'); click_hook=function() created() end
+key('script_F4'); assert(#dispatches==1); assert(last():find('not confirmed',1,true))
+-- Errors after native dispatch may not be presented as confirmed success.
+start(); choose_graphics(); key('script_F4'); click_hook=function() error('native click exception') end
+key('script_F4'); assert(#dispatches==1); assert(not last():find('Graphics opened',1,true))
+-- Losing diagnostic output after arming must block dispatch.
+start(); choose_graphics(); key('script_F4'); file_failure=true; key('script_F4')
+no_dispatch('Diagnostic I/O failure')
+-- Exhausting the bounded native log also blocks dispatch without growing it further.
+start(); choose_graphics()
+for i=1,30 do now=now+5; key('script_F4') end
+no_dispatch('Log cap'); assert(#contents('native-ui-graphics-preview.log') <= 2097152)
+-- The four-second boundary is inclusive; expiration during validation is rejected.
+start(); choose_graphics(); key('script_F4'); now=1004; key('script_F4'); assert(#dispatches==1)
+start(); choose_graphics(); key('script_F4')
+reads=0
+read_hook=function(n, method)
+    if n.prefix==graphics_key and method=='Address' then
+        reads=reads+1; if reads==2 then now=1005 end
+    end
+end
+key('script_F4'); no_dispatch('Confirmation expired during final validation')
+-- Switching game context while retaining an old callback never permits input.
+for _, mode in ipairs({'campaign','battle'}) do
+    start(); choose_graphics(); key('script_F4'); context_mode=mode; key('script_F4')
+    no_dispatch('Context switched after browse')
+end
+-- Exercise the actual first-input lifecycle order reported by the live run.
+start(); created(); key('script_F2'); key('script_F3')
+assert(contents('native-ui-graphics-preview.log'):find('navigation.received\tstring\tscript_F2',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('navigation.received\tstring\tscript_F3',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('capture.ENTER\tstring\tbrowse',1,true))
+assert(last():find('22 of 22: Quit',1,true))
+-- A remapped/unrecognized shortcut is traced without starting a scan or action.
+start(); key('script_shift_F2')
+assert(contents('native-ui-graphics-preview.log'):find('shortcut.seen\tstring\tstring:script_shift_F2',1,true))
+assert(not contents('native-ui-graphics-preview.log'):find('capture.ENTER',1,true))
+no_dispatch('Unknown shortcut is diagnostic only')
+-- The raw shortcut sample remains bounded even when unknown events repeat.
+start()
+for i=1,100 do key('script_unrecognized') end
+local _, shortcut_count=contents('native-ui-graphics-preview.log'):gsub('shortcut.seen','')
+assert(shortcut_count==64)
+-- An exception outside capture's own protection is surfaced, cancels selection
+-- and permits a fresh browse after the transient failure clears.
+start(); speech_write_throw=true; key('script_F2')
+assert(contents('native-ui-graphics-preview.log'):find('navigation.ERROR',1,true))
+assert(last():find('Navigation failed:',1,true)); no_dispatch('Navigation exception')
+key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
+-- The successful diagnostic does not require string.match. A reduced host
+-- library must not break logging, navigation, or the error-reporting path.
+start()
+local original_match=string.match
+string.match=nil
+local minimal_ok, minimal_err=pcall(function() key('script_F2'); key('script_F3') end)
+string.match=original_match
+assert(minimal_ok, minimal_err)
+assert(last():find('22 of 22: Quit',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('capture.buffers',1,true))
+-- The real Graphics capture contains seven controls, not the three footer links.
+start(nil, graphics_fixture)
+local expected_names={'Run in window','Accept changes','Cancel changes','Advanced','Recommended','Resolution, 1280x720','Quality, Low'}
+for _, name in ipairs(expected_names) do
+    key('script_F2')
+    assert(last():find('of 7:',1,true) and last():find(name,1,true),last())
+    assert(not last():find('Total War Academy',1,true) and not last():find('Patch Notes',1,true) and not last():find('Quit',1,true))
+    if name ~= 'Advanced' then
+        key('script_F4'); key('script_F4'); no_dispatch('Graphics setting remains read only')
+        assert(last():find('Graphics settings are read only',1,true))
+    end
+end
+key('script_F2'); assert(last():find('1 of 7: Run in window',1,true))
+assert(last():find('checked state unavailable',1,true))
+key('script_F3'); assert(last():find('7 of 7: Quality, Low',1,true))
+-- Native result observation after a single allowed click produces the scoped list.
+start(); choose_graphics(); key('script_F4')
+click_hook=function() nodes=build_nodes(graphics_fixture) end
+key('script_F4'); assert(#dispatches==1)
+key('script_F2'); assert(last():find('Graphics settings, 1 of 7',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('capture.screen\tstring\tgraphics',1,true))
+-- Escape may replace the panel without a UI-created event. Probe its identity
+-- before reusing cached entries, then restore the main-menu list.
+nodes=build_nodes(fixture)
+key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('navigation.screen_changed',1,true))
+-- Background controls remain hidden on unknown, advanced and popup screens.
+start(nil, graphics_fixture); nodes['tree.child2'].data.Id='unknown_panel'; key('script_F2')
+assert(last():find('Unmapped frontend screen',1,true)); no_dispatch('Unknown panel')
+for _, prefix in ipairs({'tree.child2.child0','tree.child2.child2','tree.child2.child1.child5.child1','tree.child2.child1.child6.child1'}) do
+    start(nil, graphics_fixture); nodes[prefix].data.Visible=true; key('script_F2')
+    assert(last():find(prefix=='tree.child2.child0' and 'Advanced graphics detected' or 'Graphics dialog or expanded control',1,true),last())
+    key('script_F4'); no_dispatch('Unsupported popup cannot activate')
+end
+-- Hidden controls are excluded; malformed selected values are not fabricated.
+start(nil, graphics_fixture); nodes['tree.child2.child1.child2.child1'].data.Visible=false
+key('script_F2'); assert(last():find('1 of 6:',1,true))
+start(nil, graphics_fixture); nodes['tree.child2.child1.child5.child0'].faults.GetStateText='function'
+for i=1,6 do key('script_F2') end
+assert(last():find('Resolution, value unavailable',1,true))
+-- Manually entering Graphics also invalidates a main-menu cache without a
+-- lifecycle event. It does not dispatch any input through this integration.
+start(); key('script_F2'); nodes=build_nodes(graphics_fixture); key('script_F2')
+assert(last():find('1 of 7: Run in window',1,true)); no_dispatch('Manual panel transition')
+-- Graphics naming and root/panel probes also work without string.match.
+start(nil, graphics_fixture)
+original_match=string.match; string.match=nil
+local graphics_minimal_ok,graphics_minimal_err=pcall(function() for i=1,7 do key('script_F2') end end)
+string.match=original_match
+assert(graphics_minimal_ok,graphics_minimal_err)
+assert(last():find('7 of 7: Quality, Low',1,true))
+-- Advanced activation changes only a view. These synthetic leaves remain
+-- useful for testing bounded discovery independently of production labels.
+local advanced_key='tree.child2.child1.child3'
+local advanced_fixture={}
+for prefix,row in pairs(graphics_fixture) do
+    advanced_fixture[prefix]={}; for k,v in pairs(row) do advanced_fixture[prefix][k]=v end
+end
+advanced_fixture['tree.child2.child0'].Visible=true
+advanced_fixture['tree.child2.child1'].Visible=false
+for i=0,11 do
+    advanced_fixture['tree.child2.child0.child'..i]={Id='fixture_advanced_'..i,Visible=true,IsInteractive=true,
+        ChildCount=0,GetStateText='Fixture advanced label '..i,GetTooltipText='',CurrentState='active'}
+end
+local function install_scene(layout)
+    local root_address,panel_address=nodes.tree.address,nodes['tree.child2'].address
+    nodes=build_nodes(layout)
+    nodes.tree.address=root_address; nodes['tree.child2'].address=panel_address
+end
+local function choose_advanced()
+    for i=1,4 do key('script_F2') end
+    assert(last():find('4 of 7: Advanced, button',1,true),last())
+end
+start(nil,graphics_fixture); choose_advanced(); key('script_F4')
+assert(last():find('Advanced. Press F4 again',1,true)); no_dispatch('First Advanced confirmation')
+click_hook=function() install_scene(advanced_fixture) end
+key('script_F4'); assert(#dispatches==1 and dispatches[1]==advanced_key)
+assert(not contents('native-ui-graphics-preview.log'):find('activation.observed_result',1,true))
+key('script_F2'); assert(last():find('Advanced graphics detected',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('activation.observed_result\tstring\tAdvanced',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('fixture_advanced_11',1,true))
+key('script_F4'); assert(#dispatches==1)
+-- Collapsing Advanced without replacing the root or Graphics component must
+-- refresh the cache using the observed child visibility flags.
+install_scene(graphics_fixture); key('script_F2')
+assert(last():find('1 of 7: Run in window',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('navigation.screen_changed',1,true))
+for _, delta in ipairs({5,-1}) do
+    start(nil,graphics_fixture); choose_advanced(); key('script_F4'); now=now+delta; key('script_F4')
+    no_dispatch('Advanced confirmation time anomaly')
+end
+start(nil,graphics_fixture); choose_advanced(); key('script_F4'); key('script_F2'); key('script_F3'); key('script_F4')
+no_dispatch('Advanced navigation cancels confirmation')
+for _, prefix in ipairs({'tree','tree.child2','tree.child2.child1',advanced_key}) do
+    start(nil,graphics_fixture); choose_advanced(); key('script_F4'); nodes[prefix].address=newproxy(); key('script_F4')
+    no_dispatch('Advanced stale ancestor identity')
+end
+for _, method in ipairs({'Visible','IsInteractive','CurrentState','GetStateText','GetTooltipText','Address','Id','ChildCount'}) do
+    for _, fault in ipairs({'throw','function','nil'}) do
+        start(nil,graphics_fixture); choose_advanced(); key('script_F4'); nodes[advanced_key].faults[method]=fault; key('script_F4')
+        no_dispatch('Advanced native failure: '..method..'/'..fault)
+    end
+end
+for _, prefix in ipairs({'tree.child2.child0','tree.child2.child2'}) do
+    start(nil,graphics_fixture); choose_advanced(); key('script_F4'); nodes[prefix].data.Visible=true; key('script_F4')
+    no_dispatch('Another Graphics panel opened after arming')
+end
+start(nil,graphics_fixture); choose_advanced(); key('script_F4'); created(); key('script_F4')
+no_dispatch('Advanced lifecycle invalidation')
+start(nil,graphics_fixture); choose_advanced(); key('script_F4'); file_failure=true; key('script_F4')
+no_dispatch('Advanced diagnostic loss')
+start(nil,graphics_fixture); choose_advanced(); key('script_F4')
+nodes['tree.child2.child1.child4'].data.Id='button_advanced_options'; key('script_F4')
+no_dispatch('Duplicate Advanced ID invalidates screen template')
+-- A returned click alone is not screen confirmation. Staying on Basic must
+-- produce result_not_observed instead of a success claim.
+start(nil,graphics_fixture); choose_advanced(); key('script_F4'); key('script_F4')
+assert(#dispatches==1); key('script_F2')
+assert(contents('native-ui-graphics-preview.log'):find('activation.result_not_observed\tstring\tAdvanced:graphics',1,true))
+assert(not contents('native-ui-graphics-preview.log'):find('activation.observed_result',1,true))
+-- Discovery remains bounded on an oversized synthetic Advanced subtree.
+local oversized={}
+for prefix,row in pairs(advanced_fixture) do
+    oversized[prefix]={}; for k,v in pairs(row) do oversized[prefix][k]=v end
+end
+for i=0,11 do
+    local section='tree.child2.child0.child'..i
+    oversized[section].ChildCount=20
+    for j=0,19 do
+        oversized[section..'.child'..j]={Id='fixture_leaf_'..j,Visible=true,IsInteractive=true,
+            ChildCount=0,GetStateText='Fixture leaf',GetTooltipText='',CurrentState='active'}
+    end
+end
+start(nil,oversized); key('script_F2')
+assert(contents('native-ui-graphics-preview.log'):find('tree.nodes\tnumber\t200',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('.bounded',1,true))
+assert(last():find('Advanced graphics detected',1,true))
+key('script_F4'); no_dispatch('Bounded Advanced discovery has no setting action')
+-- The observed 152-node panel has 33 semantic entries. These labels/values
+-- come from the captured native fields, not the synthetic discovery subtree.
+start(nil,captured_advanced_fixture)
+local advanced_names={
+    'Benchmark, button','Unlimited video memory','V-sync','Vignette','Proximity fading','Battery meter','SSAO','Sharpening',
+    'Direct X, DX11','Anti-aliasing, Off','Texture quality, Low','Texture filtering, Trilinear','Shadow detail, Off',
+    'Water detail, Low','VFX detail, Low','Grass detail, Low','Tree detail, Low','Terrain detail, Low','Unit detail, Low',
+    'Building detail, Low','Depth of field, Off','Unit size, Small','Screen space reflections, Off','Porthole quality, 2D',
+    'Fog, Low','Corpse Lifespan (in seconds), 30','Graphics Card, Intel(R) Iris(R) Plus Graphics',
+    'Video Memory (MB), 800 MB','Accept changes, button','Cancel changes, button','Resolution scale, +100%, slider',
+    'UI scale, 100%, slider','Apply UI Scale, button'}
+for i,name in ipairs(advanced_names) do
+    key('script_F2')
+    assert(last():find('Advanced graphics, '..i..' of 33:',1,true) and last():find(name,1,true),last())
+    assert(last():find('read only',1,true))
+    if i==2 or i==9 or i==25 then assert(last():find('inactive',1,true)) end
+    if i==5 or i==8 then assert(last():find('selected',1,true) and last():find('checked state unavailable',1,true)) end
+    assert(not last():find('Total War Academy',1,true) and not last():find('Patch Notes',1,true) and not last():find('Quit',1,true))
+    key('script_F4'); key('script_F4'); no_dispatch('Every Advanced setting is read only')
+end
+assert(contents('native-ui-graphics-preview.log'):find('tree.nodes\tnumber\t152',1,true))
+assert(not contents('native-ui-graphics-preview.log'):find('.bounded',1,true))
+local _, actual_captures=contents('native-ui-graphics-preview.log'):gsub('capture.COMPLETE','')
+assert(actual_captures==1, 'Advanced navigation must remain cached')
+key('script_F2'); assert(last():find('1 of 33: Benchmark',1,true))
+key('script_F3'); assert(last():find('33 of 33: Apply UI Scale',1,true))
+-- Real observed panels also test unchanged-root visibility transitions.
+install_scene(graphics_fixture); key('script_F2'); assert(last():find('1 of 7: Run in window',1,true))
+install_scene(captured_advanced_fixture); key('script_F2'); assert(last():find('1 of 33: Benchmark',1,true))
+install_scene(fixture); key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
+-- Hidden and presentation-only descendants are not navigation entries.
+start(nil,captured_advanced_fixture); nodes['tree.child2.child0.child0'].data.Visible=false
+key('script_F2'); assert(last():find('1 of 32: Unlimited video memory',1,true))
+-- A missing dropdown value is announced as unavailable, never inferred from state.
+start(nil,captured_advanced_fixture); nodes['tree.child2.child0.child2.child0.child0'].faults.GetStateText='function'
+for i=1,9 do key('script_F2') end
+assert(last():find('Direct X, value unavailable',1,true))
+-- A missing native label excludes its control without exposing an internal id.
+start(nil,captured_advanced_fixture); nodes['tree.child2.child0.child2.child0.child2'].faults.GetStateText='function'
+key('script_F2'); assert(last():find('of 32:',1,true))
+for i=1,32 do
+    key('script_F2'); assert(not last():find('dropdown_directx',1,true))
+end
+-- Popup detection at capture time hides the underlying panel until a future
+-- popup reader is implemented. No setting action is dispatched.
+start(nil,captured_advanced_fixture); nodes['tree.child2.child0.child2.child0.child1'].data.Visible=true
+key('script_F2'); assert(last():find('Advanced dropdown is expanded',1,true))
+key('script_F4'); no_dispatch('Expanded Advanced popup')
+-- No optional string.match dependency is introduced by the new reader.
+start(nil,captured_advanced_fixture)
+original_match=string.match; string.match=nil
+local advanced_minimal_ok,advanced_minimal_err=pcall(function() for i=1,33 do key('script_F2') end end)
+string.match=original_match
+assert(advanced_minimal_ok,advanced_minimal_err)
+assert(last():find('33 of 33: Apply UI Scale',1,true))
+-- Regression: persisted windowed mode must not block Advanced view activation.
+-- This uses the actual failing 0.5.9 basic-screen capture.
+start(nil,windowed_fixture); choose_advanced(); key('script_F4')
+assert(last():find('Advanced. Press F4 again',1,true),last())
+click_hook=function() install_scene(captured_advanced_fixture) end
+key('script_F4'); assert(#dispatches==1 and dispatches[1]==advanced_key)
+key('script_F2'); assert(last():find('1 of 33: Benchmark',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('activation.observed_result\tstring\tAdvanced',1,true))
+-- Allowing a starting variant must not allow that value to change while armed.
+for _, initial in ipairs({'active','selected'}) do
+    start(nil,graphics_fixture); nodes['tree.child2.child1.child0'].data.CurrentState=initial
+    choose_advanced(); key('script_F4')
+    nodes['tree.child2.child1.child0'].data.CurrentState=initial=='active' and 'selected' or 'active'
+    key('script_F4'); no_dispatch('Window mode changed during confirmation')
+end
+-- No other checkbox state or unreadable native value gets a layout exemption.
+for _, state in ipairs({'inactive','disabled','selected_hover','unknown'}) do
+    start(nil,graphics_fixture); nodes['tree.child2.child1.child0'].data.CurrentState=state
+    choose_advanced(); key('script_F4'); key('script_F4'); no_dispatch('Unobserved windowed state: '..state)
+end
+for _, fault in ipairs({'throw','function','nil'}) do
+    start(nil,windowed_fixture); nodes['tree.child2.child1.child0'].faults.CurrentState=fault
+    choose_advanced(); key('script_F4'); key('script_F4'); no_dispatch('Unreadable windowed state: '..fault)
+end
+-- The exception is specific to one field on the captured checkbox, not any
+-- control called selected, nor its visibility, type, or interactive state.
+start(nil,windowed_fixture); choose_advanced(); key('script_F4')
+nodes[advanced_key].data.CurrentState='selected'; key('script_F4'); no_dispatch('Advanced must remain active')
+start(nil,windowed_fixture); choose_advanced(); key('script_F4')
+nodes['tree.child2.child1.child0'].data.Visible=false; key('script_F4'); no_dispatch('Hidden windowed control')
+start(nil,windowed_fixture); nodes['tree.child2.child1.child0'].data.IsInteractive=false
+choose_advanced(); key('script_F4'); key('script_F4'); no_dispatch('Noninteractive windowed control')
+start(nil,windowed_fixture); choose_advanced(); key('script_F4')
+nodes['tree.child2.child1.child0'].data.Id='checkbox_other'; key('script_F4'); no_dispatch('Wrong checkbox id')
+start(nil,windowed_fixture); choose_advanced(); key('script_F4')
+nodes[advanced_key].address=newproxy(); key('script_F4'); no_dispatch('Windowed mode still requires native identity')
+-- The next slice opens only the actually captured main-menu New Campaign.
+local campaign_key='tree.child2.child1.child0.child0.child0.child0.child1'
+local function choose_campaign() key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true)) end
+start(); choose_campaign(); key('script_F4'); no_dispatch('Campaign first press only arms')
+assert(last():find('New Campaign. Press F4 again',1,true))
+key('script_F4'); assert(#dispatches==1 and dispatches[1]==campaign_key)
+key('script_F4'); assert(#dispatches==1, 'No reusing campaign confirmation')
+-- Synthetic unknown setup data is only a test, not a captured game template.
+local unknown_setup={}
+for prefix,row in pairs(fixture) do
+    unknown_setup[prefix]={}; for k,v in pairs(row) do unknown_setup[prefix][k]=v end
+end
+unknown_setup['tree.child2'].Id='fixture_unmapped_setup'
+start(); choose_campaign(); key('script_F4')
+click_hook=function() install_scene(unknown_setup) end
+key('script_F4'); key('script_F2')
+assert(last():find('Unmapped frontend screen. Captured',1,true))
+assert(not last():find('New Campaign opened',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('activation.result_requires_mapping',1,true))
+assert(not contents('native-ui-graphics-preview.log'):find('activation.observed_result',1,true))
+key('script_F4'); assert(#dispatches==1, 'Unmapped setup cannot start a campaign')
+local _, before_refresh=contents('native-ui-graphics-preview.log'):gsub('capture.COMPLETE','')
+key('script_F2')
+local _, after_refresh=contents('native-ui-graphics-preview.log'):gsub('capture.COMPLETE','')
+assert(after_refresh==before_refresh+1, 'Explicit browse must refresh an unknown panel')
+install_scene(fixture); key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
+-- Campaign activation retains the same exact validation and cancellation rules.
+for _, prefix in ipairs({'tree','tree.child2',campaign_key}) do
+    start(); choose_campaign(); key('script_F4'); nodes[prefix].address=newproxy(); key('script_F4')
+    no_dispatch('Campaign stale identity')
+end
+for _, method in ipairs({'Id','Visible','IsInteractive','CurrentState','GetStateText','GetTooltipText','Address','ChildCount'}) do
+    for _, fault in ipairs({'throw','function','nil'}) do
+        start(); choose_campaign(); key('script_F4'); nodes[campaign_key].faults[method]=fault; key('script_F4')
+        no_dispatch('Campaign native read failure: '..method..'/'..fault)
+    end
+end
+for _, state in ipairs({'inactive','selected','disabled'}) do
+    start(); nodes[campaign_key].data.CurrentState=state; choose_campaign()
+    key('script_F4'); key('script_F4'); no_dispatch('Campaign not active')
+end
+for _, prefix in ipairs({'tree.child2.child1','tree.child2.child1.child0.child0.child0',campaign_key}) do
+    start(); choose_campaign(); key('script_F4'); nodes[prefix].data.Visible=false; key('script_F4')
+    no_dispatch('Campaign hidden ancestor or leaf')
+end
+for _, delta in ipairs({5,-1}) do
+    start(); choose_campaign(); key('script_F4'); now=now+delta; key('script_F4'); no_dispatch('Campaign clock')
+end
+start(); choose_campaign(); key('script_F4'); key('script_F2'); key('script_F3'); key('script_F4')
+no_dispatch('Campaign navigation cancels confirmation')
+start(); choose_campaign(); key('script_F4'); created(); key('script_F4'); no_dispatch('Campaign lifecycle')
+start(); choose_campaign(); key('script_F4'); file_failure=true; key('script_F4'); no_dispatch('Campaign log failure')
+start(); nodes.tree.data.ChildCount=6; choose_campaign(); key('script_F4'); key('script_F4'); no_dispatch('Campaign extra modal')
+start(); nodes['tree.child3.child0.child0'].data.Id='button_new_campaign'
+choose_campaign(); key('script_F4'); key('script_F4'); no_dispatch('Campaign duplicate id')
+-- Actual 0.6.0 campaign selection data, including the second hidden-Tooltip capture.
+local campaign_fixture=dofile('tests/fixtures/campaign_selection_0_6_0.lua')
+local tooltip_fixture=dofile('tests/fixtures/campaign_selection_tooltip_0_6_0.lua')
+local continue_key='tree.child2.child2.child0'
+local function choose_continue()
+    for i=1,17 do key('script_F2'); if last():find(': Continue, button',1,true) then return end end
+    error('Continue was not found: '..last())
+end
+local selection_names={'The Eye of the Vortex, campaign choice','Mortal Empires, campaign choice','Continue, button',
+    'Campaign description: At the heart of the Elven homeland','Listed race: High Elves','Listed race: Lizardmen',
+    'Listed race: Dark Elves','Listed race: Skaven','Listed race: Vampire Coast','Listed race: Tomb Kings',
+    'Listed race: The Empire','Listed race: Bretonnia','Listed race: Beastmen Warherds','Listed race: Dwarfs',
+    'Listed race: Greenskins','Listed race: Wood Elves','Return to main menu, use Escape'}
+for _, layout in ipairs({campaign_fixture,tooltip_fixture}) do
+    start(nil,layout)
+    for i,name in ipairs(selection_names) do
+        key('script_F2')
+        assert(last():find('Campaign selection, '..i..' of 17:',1,true) and last():find(name,1,true),last())
+        if i==1 then assert(last():find('selected',1,true)) end
+        if i~=3 then
+            assert(last():find('read only',1,true)); key('script_F4'); key('script_F4'); no_dispatch('Selection information cannot dispatch')
+        end
+        assert(not last():find('button_campaign_entry',1,true) and not last():find('new_content_icon',1,true))
+    end
+    local _, captures=contents('native-ui-graphics-preview.log'):gsub('capture.COMPLETE','')
+    assert(captures==1,'Campaign list browsing must remain cached')
+    key('script_F2'); assert(last():find('1 of 17: The Eye of the Vortex',1,true))
+    key('script_F3'); assert(last():find('17 of 17:',1,true))
+    -- Activating this one captured view button requires both F4 presses.
+    start(nil,layout); choose_continue(); key('script_F4'); no_dispatch('Continue first press')
+    assert(last():find('Continue. Press F4 again',1,true),last())
+    click_hook=function() install_scene(unknown_setup) end
+    key('script_F4'); assert(#dispatches==1 and dispatches[1]==continue_key)
+    assert(last():find('not confirmed',1,true))
+    key('script_F2'); assert(last():find('Unmapped frontend screen',1,true))
+    assert(contents('native-ui-graphics-preview.log'):find('activation.result_requires_mapping\tstring\tContinue:unknown',1,true))
+    assert(not contents('native-ui-graphics-preview.log'):find('activation.observed_result',1,true))
+    key('script_F4'); key('script_F4'); assert(#dispatches==1,'Unmapped lord/setup controls cannot activate')
+end
+-- New Campaign now has a real observed panel identity for its result.
+start(); choose_campaign(); key('script_F4'); click_hook=function() install_scene(campaign_fixture) end
+key('script_F4'); key('script_F2'); assert(last():find('1 of 17:',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('activation.observed_result\tstring\tNew Campaign',1,true))
+-- Returning with no recreated root/panel still restores the main-menu scope.
+install_scene(fixture); key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
+-- Cached navigation detects selection and description-title changes.
+start(nil,campaign_fixture); key('script_F2')
+nodes['tree.child2.child0.child1.child0.child1'].data.CurrentState='active'
+nodes['tree.child2.child0.child1.child1.child1'].data.CurrentState='selected'
+key('script_F2'); assert(last():find('1 of 17: The Eye of the Vortex',1,true) and last():find('active',1,true))
+choose_continue(); key('script_F4'); key('script_F4'); no_dispatch('Unverified Mortal Empires selection')
+start(nil,campaign_fixture); key('script_F2')
+nodes['tree.child2.child0.child0.child1.child0.child1.child0'].data.GetStateText='Changed title'
+key('script_F2'); assert(contents('native-ui-graphics-preview.log'):find('navigation.screen_changed',1,true))
+-- Exact fields/identities are checked on every F4, not merely on browse.
+for _, method in ipairs({'Id','Visible','IsInteractive','CurrentState','GetStateText','GetTooltipText','ChildCount','Address'}) do
+    for _, fault in ipairs({'throw','function','nil'}) do
+        start(nil,campaign_fixture); choose_continue(); key('script_F4')
+        nodes[continue_key].faults[method]=fault; key('script_F4'); no_dispatch('Continue native failure: '..method..'/'..fault)
+    end
+end
+for _, prefix in ipairs({'tree','tree.child2','tree.child2.child2',continue_key}) do
+    start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes[prefix].address=newproxy(); key('script_F4')
+    no_dispatch('Continue stale identity')
+    start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes[prefix].data.Visible=false; key('script_F4')
+    no_dispatch('Continue hidden ancestor')
+end
+for _, state in ipairs({'inactive','selected','disabled','unknown'}) do
+    start(nil,campaign_fixture); nodes[continue_key].data.CurrentState=state; choose_continue()
+    key('script_F4'); key('script_F4'); no_dispatch('Continue not active')
+end
+start(nil,campaign_fixture); choose_continue(); key('script_F4'); key('script_F4'); key('script_F2')
+assert(contents('native-ui-graphics-preview.log'):find('activation.result_not_observed\tstring\tContinue:campaign_selection',1,true))
+assert(not contents('native-ui-graphics-preview.log'):find('activation.observed_result',1,true))
+for _, delta in ipairs({5,-1}) do
+    start(nil,campaign_fixture); choose_continue(); key('script_F4'); now=now+delta; key('script_F4'); no_dispatch('Continue clock')
+end
+start(nil,campaign_fixture); choose_continue(); key('script_F4'); created(); key('script_F4'); no_dispatch('Continue lifecycle')
+start(nil,campaign_fixture); choose_continue(); key('script_F4'); key('script_F2'); key('script_F3'); key('script_F4'); no_dispatch('Continue navigation cancellation')
+start(nil,campaign_fixture); choose_continue(); key('script_F4'); file_failure=true; key('script_F4'); no_dispatch('Continue log failure')
+start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes['tree.child2.child2.child1'].data.Visible=true; key('script_F4'); no_dispatch('Purchase panel appeared')
+start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes['tree.child2.child2.child2'].data.Visible=true; key('script_F4'); no_dispatch('Download panel appeared')
+start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes['tree.child2.child2.child1'].data.Id='button_next'; key('script_F4'); no_dispatch('Duplicate Continue ID')
+start(nil,campaign_fixture); nodes[continue_key].data.Id='button_start_campaign'; key('script_F2'); key('script_F4'); key('script_F4'); no_dispatch('Start Campaign is never allowed')
+-- Extra root children may only be the actually observed hidden noninteractive Tooltip.
+for _, field in ipairs({'Id','Visible','IsInteractive'}) do
+    start(nil,tooltip_fixture); choose_continue(); key('script_F4')
+    nodes['tree.child5'].data[field]=field=='Id' and 'dialog' or true
+    key('script_F4'); no_dispatch('Unexpected extra root child: '..field)
+end
+start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes.tree.data.ChildCount=7; key('script_F4'); no_dispatch('Extra root popup')
+start(nil,tooltip_fixture); nodes['tree.child5'].data.Visible=true; key('script_F2'); assert(last():find('unsupported campaign overlay',1,true)); key('script_F4'); no_dispatch('Visible tooltip/overlay')
+nodes['tree.child5'].data.Visible=false; key('script_F2'); assert(last():find('1 of 17:',1,true))
+-- Only observed empty, noninteractive smoke leaves may change visibility.
+local particle='tree.child2.child0.child1.child0.child0.child1.child34'
+start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes[particle].data.Visible=not nodes[particle].data.Visible
+key('script_F4'); assert(#dispatches==1 and dispatches[1]==continue_key,'Empty particle visibility must not cancel')
+for _, property in ipairs({'Id','IsInteractive','GetStateText','GetTooltipText','CurrentState','ChildCount'}) do
+    start(nil,campaign_fixture); choose_continue(); key('script_F4')
+    nodes[particle].data[property]=property=='IsInteractive' and true or property=='ChildCount' and 1 or 'changed'
+    key('script_F4'); no_dispatch('A particle cannot become content: '..property)
+end
+-- Changing the actually selected campaign or title during confirmation cancels.
+start(nil,campaign_fixture); choose_continue(); key('script_F4')
+nodes['tree.child2.child0.child1.child0.child1'].data.CurrentState='active'; key('script_F4'); no_dispatch('Campaign selected state changed')
+start(nil,campaign_fixture); choose_continue(); key('script_F4')
+nodes['tree.child2.child0.child0.child1.child0.child1.child0'].data.GetStateText='Mortal Empires'; key('script_F4'); no_dispatch('Campaign title changed')
+-- Labels and values must come from native strings; no internal-ID fallback.
+start(nil,campaign_fixture); nodes['tree.child2.child0.child1.child1.child1.child0'].faults.GetStateText='function'
+key('script_F2'); assert(last():find('1 of 16:',1,true))
+start(nil,campaign_fixture); nodes['tree.child2.child0.child0.child1.child1.child1.child0'].data.Visible=false
+key('script_F2'); assert(last():find('1 of 16:',1,true))
+start(nil,campaign_fixture); original_match=string.match; string.match=nil
+local campaign_minimal_ok,campaign_minimal_err=pcall(function() for i=1,17 do key('script_F2') end end)
+string.match=original_match; assert(campaign_minimal_ok,campaign_minimal_err); assert(last():find('17 of 17:',1,true))
+-- Cached selection speech refreshes when visible/enabled Continue or description changes.
+start(nil,campaign_fixture); key('script_F2'); nodes[continue_key].data.CurrentState='inactive'
+choose_continue(); assert(last():find('inactive',1,true))
+start(nil,campaign_fixture); key('script_F2'); nodes[continue_key].data.Visible=false
+key('script_F2'); assert(last():find('1 of 16:',1,true))
+start(nil,campaign_fixture); key('script_F2')
+nodes['tree.child2.child0.child0.child1.child0.child0.child0'].data.GetStateText='Changed native description'
+for i=1,4 do key('script_F2') end
+assert(last():find('Changed native description',1,true),last())
+-- Regression: plain diagnostic rows flatten native CR/LF one-for-one.
+-- These input variants reproduce the 0.6.1 mismatch while printing identically.
+local store_tip='tree.child2.child0.child0.child1.child1.child1.child10.child0'
+for _, breaks in ipairs({'\r\n','\n\n','\r\r'}) do
+    start(nil,campaign_fixture)
+    nodes[store_tip].data.GetTooltipText=nodes[store_tip].data.GetTooltipText:gsub('  Left',breaks..'Left',1)
+    choose_continue(); key('script_F4'); assert(last():find('Continue. Press F4 again',1,true),last())
+    key('script_F4'); assert(#dispatches==1 and dispatches[1]==continue_key)
+    assert(contents('native-ui-graphics-preview.log'):find('campaign.tooltip.escaped',1,true))
+end
+for _, breaks in ipairs({'\r','\n'}) do
+    start(nil,campaign_fixture)
+    local description='tree.child2.child0.child0.child1.child0.child0.child0'
+    nodes[description].data.GetStateText=nodes[description].data.GetStateText:gsub('At the','At'..breaks..'the',1)
+    choose_continue(); key('script_F4'); key('script_F4'); assert(#dispatches==1 and dispatches[1]==continue_key)
+end
+-- Exact raw strings still guard a pending confirmation, even when log rows match.
+start(nil,campaign_fixture)
+nodes[store_tip].data.GetTooltipText=nodes[store_tip].data.GetTooltipText:gsub('  Left','\r\nLeft',1)
+choose_continue(); key('script_F4'); assert(last():find('Press F4 again',1,true))
+nodes[store_tip].data.GetTooltipText=nodes[store_tip].data.GetTooltipText:gsub('\r\n','\n\n')
+key('script_F4'); no_dispatch('Byte-level line break change during confirmation')
+-- Do not normalize tabs, spacing changes, words, IDs, states or non-campaign fields.
+for _, replacement in ipairs({' Left','\t\tLeft','  Changed'}) do
+    start(nil,campaign_fixture)
+    nodes[store_tip].data.GetTooltipText=nodes[store_tip].data.GetTooltipText:gsub('  Left',replacement,1)
+    choose_continue(); key('script_F4'); key('script_F4'); no_dispatch('Non-newline text change')
+    if replacement=='\t\tLeft' then assert(contents('native-ui-graphics-preview.log'):find('\\u0009',1,true)) end
+end
+start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes[continue_key].data.CurrentState='active\n'; key('script_F4'); no_dispatch('No state normalization')
+start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes[continue_key].data.Id='button_next\n'; key('script_F4'); no_dispatch('No ID normalization')
+start(); nodes[graphics_key].data.GetTooltipText='\r\n'; choose_graphics(); key('script_F4'); key('script_F4'); no_dispatch('No main-menu text normalization')
+-- Actual returned main has Tooltip child4 and browser child5, not the reverse.
+local returned_main=dofile('tests/fixtures/frontend_menu_tooltip_0_6_1.lua')
+start(nil,returned_main); key('script_F2'); assert(last():find('1 of 22: New Campaign',1,true))
+key('script_F4'); assert(last():find('New Campaign. Press F4 again',1,true),last())
+click_hook=function() install_scene(campaign_fixture) end
+key('script_F4'); assert(#dispatches==1 and dispatches[1]==campaign_key)
+key('script_F2'); assert(last():find('1 of 17:',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('activation.observed_result\tstring\tNew Campaign',1,true))
+start(nil,returned_main); choose_graphics(); key('script_F4'); key('script_F4'); assert(#dispatches==1 and dispatches[1]==graphics_key)
+-- A caption on a hidden, noninteractive, non-target Tooltip is not control data.
+start(nil,returned_main); choose_campaign(); key('script_F4'); nodes['tree.child4'].data.GetStateText='Previously hovered control'
+key('script_F4'); assert(#dispatches==1 and dispatches[1]==campaign_key)
+for _, property in ipairs({'Id','Visible','IsInteractive','GetTooltipText','ChildCount','CurrentState'}) do
+    start(nil,returned_main); choose_campaign(); key('script_F4')
+    nodes['tree.child4'].data[property]=property=='Visible' and true or property=='IsInteractive' and true or property=='ChildCount' and 3 or 'changed'
+    key('script_F4'); no_dispatch('Returned-main Tooltip must remain observed and hidden: '..property)
+end
+start(nil,returned_main); choose_campaign(); key('script_F4'); nodes['tree.child5'].data.Visible=true; key('script_F4'); no_dispatch('Visible browser on returned main')
+start(nil,returned_main); choose_campaign(); key('script_F4'); nodes[campaign_key].address=newproxy(); key('script_F4'); no_dispatch('Returned-main native identity')
+start(nil,returned_main); choose_campaign(); key('script_F4'); nodes.tree.data.ChildCount=7; key('script_F4'); no_dispatch('Returned-main extra popup')
+-- Root-child changes must refresh cached main navigation before arming input.
+start(); key('script_F2'); install_scene(returned_main); key('script_F2')
+assert(last():find('1 of 22: New Campaign',1,true))
+assert(contents('native-ui-graphics-preview.log'):find('tree.nodes\tnumber\t87',1,true))
+key('script_F4'); key('script_F4'); assert(#dispatches==1 and dispatches[1]==campaign_key)
+-- Opt-in timer transport exercises the same native handlers, not a keyboard event.
+local function auto_status()
+    local result={}
+    for value in contents('automation-status.tsv'):gmatch('[^\t\n]+') do result[#result+1]=value end
+    assert(#result==16,'Complete automation status required: '..contents('automation-status.tsv'))
+    return result
+end
+local function auto_request(action,overrides)
+    local status=auto_status()
+    local request={'WH2REQ1',string.rep('a',32),status[3],tostring(tonumber(status[6])+1),status[4],status[5],action,status[9],tostring(now+5)}
+    if overrides then for key,value in pairs(overrides) do request[key]=value end end
+    local raw=table.concat(request,'\t')..'\n'
+    files[automation_base .. 'automation-request.tsv']={raw}
+    assert(automation_poll,'Automation callback active'); automation_poll()
+    return auto_status(),raw
+end
+start(); assert(automation_poll==nil and contents('automation-status.tsv')=='','Default stays uninstrumented')
+start(nil,fixture,true); assert(automation_poll,'Verified timer callback registered')
+local status=auto_status(); assert(status[14]=='1' and status[15]=='1' and status[6]=='0')
+status=auto_request('next'); assert(status[8]=='main' and status[11]=='22' and status[10]=='New Campaign')
+assert(not contents('native-ui-graphics-preview.log'):find('shortcut.seen',1,true),'Do not fake physical key events')
+status=auto_request('previous'); assert(status[10]=='Quit')
+status=auto_request('next'); assert(status[10]=='New Campaign')
+local _,captures=contents('native-ui-graphics-preview.log'):gsub('capture.COMPLETE',''); assert(captures==1)
+-- Two separate accepted activation requests are mandatory, even through the driver.
+status=auto_request('activate'); assert(status[7]=='armed' and status[12]==campaign_key); no_dispatch('Automation first confirm only')
+local armed=contents('automation-request.tsv'); automation_poll(); no_dispatch('Unchanged request is not retried')
+files[automation_base .. 'automation-request.tsv']={armed:gsub('activate','previous')}; automation_poll(); no_dispatch('Same sequence different payload is not rerun')
+click_hook=function() install_scene(campaign_fixture) end
+status=auto_request('activate'); assert(status[7]=='input-sent' and #dispatches==1 and dispatches[1]==campaign_key)
+status=auto_request('next'); assert(status[8]=='campaign_selection' and status[11]=='17')
+assert(contents('native-ui-graphics-preview.log'):find('activation.observed_result\tstring\tNew Campaign',1,true))
+-- Continue uses the same live Vortex validation and still needs both confirmations.
+status=auto_request('next'); status=auto_request('next'); assert(status[10]=='Continue, button')
+status=auto_request('activate'); assert(status[7]=='armed' and #dispatches==1)
+click_hook=function() install_scene(unknown_setup) end
+status=auto_request('activate'); assert(status[7]=='input-sent' and #dispatches==2 and dispatches[2]==continue_key)
+status=auto_request('next'); assert(status[8]=='unknown' and status[11]=='0')
+status=auto_request('activate'); assert(status[7]=='blocked' and #dispatches==2)
+-- Valid owned requests with stale/expired/unsupported data are consumed and rejected.
+for _,case in ipairs({{5,'999','generation'},{6,'999','revision'},{8,'tree.wrong','selection'},{9,'999','expired'},{9,'1006','expired'},{7,'loadstring','action'}}) do
+    start(nil,fixture,true); status=auto_request('next',{[case[1]]=case[2]})
+    assert(status[6]=='1' and status[7]=='rejected:'..case[3]); no_dispatch('Rejected driver request: '..case[3])
+end
+-- Other owners/sessions, malformed input and out-of-order requests cannot act.
+for _,case in ipairs({{2,string.rep('b',32)},{3,'old game session'},{4,'3'},{4,'NaN'}}) do
+    start(nil,fixture,true); status=auto_request('next',{[case[1]]=case[2]})
+    assert(status[6]=='0' and status[11]=='0'); no_dispatch('Unowned or unordered input')
+end
+for _,raw in ipairs({'return os.execute("bad")\n','WH2REQ1\tbroken\n',string.rep('x',4097)..'\n','WH2REQ1\nnext\n'}) do
+    start(nil,fixture,true); files[automation_base .. 'automation-request.tsv']={raw}; automation_poll()
+    assert(auto_status()[6]=='0'); no_dispatch('Never evaluate malformed data')
+end
+-- Native UI readiness and lifecycle/revision changes reject queued commands.
+start(nil,fixture,true); ready=false; status=auto_request('next'); assert(status[7]=='rejected:not-ready'); no_dispatch('Not ready')
+start(nil,fixture,true); status=auto_request('next')
+local old_generation,old_revision=status[4],status[5]; created()
+status=auto_request('activate',{[5]=old_generation,[6]=old_revision}); assert(status[7]=='rejected:generation'); no_dispatch('Stale lifecycle')
+start(nil,fixture,true); status=auto_request('next'); old_revision=status[5]; key('script_F3')
+status=auto_request('activate',{[6]=old_revision}); assert(status[7]=='rejected:revision'); no_dispatch('Physical navigation intervened')
+-- Confirmations cannot be borrowed between physical keyboard and automation.
+start(nil,fixture,true); status=auto_request('next'); key('script_F4'); automation_poll()
+status=auto_request('activate'); assert(status[7]=='blocked',status[7]); no_dispatch('Physical arm cannot be completed by driver')
+start(nil,fixture,true); status=auto_request('next'); status=auto_request('activate'); key('script_F4'); no_dispatch('Driver arm cannot be completed by keyboard')
+-- After an uncertain native click, duplicates must never repeat it.
+start(nil,fixture,true); status=auto_request('next'); status=auto_request('activate')
+click_hook=function() error('fixture error after native input') end
+status,armed=auto_request('activate'); assert(status[7]=='error-after-input' and #dispatches==1)
+automation_poll(); assert(#dispatches==1)
+files[automation_base .. 'automation-request.tsv']={armed:gsub('activate','next')}; automation_poll(); assert(#dispatches==1)
+-- Lost status output after input is also not a reason to repeat the command.
+start(nil,fixture,true); status=auto_request('next'); status=auto_request('activate')
+local before=auto_status()
+files[automation_base .. 'automation-request.tsv']={table.concat({'WH2REQ1',string.rep('a',32),before[3],tostring(tonumber(before[6])+1),before[4],before[5],'activate',before[9],tostring(now+5)},'\t')..'\n'}
+automation_status_failure=true; automation_poll(); assert(#dispatches==1)
+automation_status_failure=false; automation_poll(); assert(#dispatches==1 and auto_status()[7]=='error-after-input')
+-- Lease expiry/deletion revokes the channel and cancels its pending confirmation.
+for _,remove in ipairs({false,true}) do
+    start(nil,fixture,true); status=auto_request('next'); status=auto_request('activate')
+    if remove then files[automation_base .. 'automation-enabled.tsv']=nil else now=1061 end
+    automation_poll(); status=auto_status(); assert(status[15]=='0' and status[12]=='-' and automation_poll==nil)
+    no_dispatch('Revoked automation lease')
+end
+local saved_pcall=pcall
+pcall=function(fn,...) local ok,err=saved_pcall(fn,...); if not ok then return false,err end; return true end
+start(nil,fixture,true)
+pcall=saved_pcall
+assert(automation_poll,'Channel initialization must not depend on pcall forwarding return values')
+status=auto_request('next'); assert(status[10]=='New Campaign')
+start(nil,fixture,true,false,true); assert(automation_poll,'Reuse the working output directory when later environment lookup is unavailable')
+status=auto_request('next'); assert(status[10]=='New Campaign')
+start(nil,fixture,true)
+get_tm=function() return false end
+files[automation_base .. 'automation-enabled.tsv']=nil; automation_poll()
+files[automation_base .. 'automation-enabled.tsv']={'WH2LEASE1\t' .. string.rep('a',32) .. '\t1060\n'}
+created()
+assert(automation_poll,'Frontend real timers do not need the unavailable model timer manager')
+status=auto_request('next'); assert(status[10]=='New Campaign')
+start(nil,fixture,true,false,false,true)
+assert(automation_poll==nil and not listeners['warhammer_accessibility_automation_real_timer'],'Failed timer setup removes its listener')
+start(nil,fixture,true)
+local unchanged=contents('automation-status.tsv')
+fire('RealTimeTrigger',{string='unrelated_timer'})
+assert(contents('automation-status.tsv')==unchanged and automation_poll,'Unrelated real timer event cannot consume a request')
+automation_timer_failure=true
+status=auto_request('next')
+assert(status[7]=='timer-error' and status[15]=='0' and automation_poll==nil,'Rearm failure disables transport')
+no_dispatch('Timer error during read-only navigation')
+start(nil,fixture,true)
+status=auto_request('next'); status=auto_request('activate')
+automation_timer_failure=true
+status=auto_request('activate')
+assert(#dispatches==1 and status[7]=='error-after-input' and status[15]=='0' and automation_poll==nil,'Timer rearm failure after input is uncertain and cannot retry')
+start(nil,fixture,true,true); assert(automation_poll==nil,'Failed setup removes its timer and cannot accept commands')
+-- Real protocol bytes: accept Windows/Unix lines and reject incomplete or
+-- ambiguous framing before any timer or native action can be enabled.
+local lease_prefix='WH2LEASE1\t' .. string.rep('a',32) .. '\t1060'
+for _,ending in ipairs({'\n','\r\n'}) do
+    start(nil,fixture,lease_prefix .. ending)
+    assert(automation_poll,'Complete LF/CRLF lease must enable transport')
+    no_dispatch('Lease parsing must never send input')
+end
+for _,raw in ipairs({lease_prefix,lease_prefix .. '\n\n',lease_prefix .. '\r\r\n',
+    '\239\187\191' .. lease_prefix .. '\n',lease_prefix .. '\textra\n',
+    'WH2LEASE1\t' .. string.rep('a',31) .. 'g\t1060\n',
+    'WH2LEASE1\t' .. string.rep('a',32) .. '\t1e3\n'}) do
+    start(nil,fixture,raw)
+    assert(automation_poll==nil,'Malformed lease cannot enable transport')
+    no_dispatch('Malformed lease cannot send input')
+end
+start('campaign',fixture,true); assert(automation_poll==nil and next(listeners)==nil)
+start('battle',fixture,true); assert(automation_poll==nil and next(listeners)==nil)
+-- Campaign and battle contexts do not initialize any frontend listener or output.
+for _, mode in ipairs({'campaign','battle'}) do
+    start(mode); assert(next(listeners)==nil and next(files)==nil)
+end
+-- Contemporary Unix times must retain exact lease seconds and a real four
+-- second confirmation despite the host's rounded os.time numeric result.
+start(); now=1793250000; choose_graphics(); key('script_F4')
+local rounded_time=os.time(); now=now+5
+assert(os.time()==rounded_time,'Precision regression requires an unchanged rounded epoch')
+key('script_F4'); no_dispatch('Five actual seconds expire a four-second confirmation')
+start(nil,fixture,'WH2LEASE1\t' .. string.rep('a',32) .. '\t1793250060\n',false,false,false,1793250000)
+assert(automation_poll,'Exact modern epoch lease must be accepted')
+status=auto_request('next'); assert(status[16]=='1793250060' and status[10]=='New Campaign')
+status=auto_request('activate'); assert(status[13]=='1793250004','Published confirmation deadline is exact Unix text')
+now=now+5; status=auto_request('activate'); assert(status[7]=='blocked'); no_dispatch('Modern epoch confirmation expiry')
+start(); now=1793318398; choose_graphics(); key('script_F4'); now=now+4; key('script_F4')
+assert(#dispatches==1,'Confirmation remains valid across UTC midnight at exactly four seconds')
+-- Read-only breadth-first discovery has an independent budget and covers a
+-- complete synthetic 417-node tree without changing the proven scanner.
+local function finish_lord_discovery()
+    local state
+    for page=1,32 do
+        state=auto_request('discover')
+        if state[7]~='discovery-page' then return state end
+    end
+    error('Discovery did not stop at its bounded page budget')
+end
+start(nil,lord_fixture,true)
+status=finish_lord_discovery()
+assert(status[7]=='discovery-complete' and status[8]=='lord_discovery')
+assert(contents('native-ui-lord-discovery.jsonl'):find('Synthetic Lord 99',1,true))
+local expected_scoped=0
+for prefix in pairs(lord_fixture) do
+    if prefix=='tree.child2' or prefix:find('tree.child2.',1,true)==1 then expected_scoped=expected_scoped+1 end
+end
+assert(contents('native-ui-lord-discovery.jsonl'):find('"total":' .. expected_scoped,1,true),'Every node in the selected panel must be examined')
+assert(not contents('native-ui-graphics-preview.log'):find('capture.ENTER',1,true),'Discovery must not invoke or flood the legacy scanner')
+local saw_start=false
+for index=1,20 do
+    status=auto_request('next')
+    if status[10]=='Start Campaign' then saw_start=true; break end
+end
+assert(saw_start)
+status=auto_request('activate'); assert(status[7]=='blocked')
+key('script_F4'); no_dispatch('Start Campaign is read only in lord discovery')
+start(nil,lord_fixture,true); status=auto_request('next')
+assert(status[8]=='lord_discovery' and contents('bridge.jsonl'):find('Captured lord setup information',1,true))
+no_dispatch('F2 lord discovery is read only')
+start(nil,fixture,true); status=auto_request('discover'); assert(status[7]=='blocked')
+assert(contents('native-ui-lord-discovery.jsonl')=='')
+status=auto_request('next'); assert(status[10]=='New Campaign' and status[11]=='22')
+start(nil,lord_fixture,true)
+nodes['tree.child2.child0'].data.Visible=false
+read_hook=function(node,method)
+    if node.prefix:find('tree.child2.child0.child',1,true) then error('Hidden descendant must not be read') end
+end
+status=finish_lord_discovery(); assert(status[7]=='discovery-complete')
+assert(not contents('native-ui-lord-discovery.jsonl'):find('Synthetic Lord',1,true))
+read_hook=nil
+start(nil,lord_fixture,true); status=auto_request('discover')
+nodes=build_nodes(lord_fixture)
+status=auto_request('discover')
+assert(contents('native-ui-lord-discovery.jsonl'):find('"kind":"begin","run":2',1,true),'Recreated identities start a new read-only run')
+nodes=build_nodes(fixture); status=auto_request('next')
+assert(status[8]=='main' and status[10]=='New Campaign')
+start(nil,lord_fixture,true); nodes['tree.child4'].data.Visible=true
+status=auto_request('discover'); assert(status[7]=='blocked','Visible browser overlay blocks discovery')
+start(nil,lord_fixture,true)
+nodes['tree.child2.child0.child1.child0'].data.ChildCount=101
+status=finish_lord_discovery(); assert(status[7]=='discovery-limited')
+no_dispatch('Oversized child list cannot authorize actions')
+start(nil,lord_fixture,true)
+nodes['tree.child2.child1'].faults.GetStateText='function'
+status=finish_lord_discovery(); assert(status[7]=='discovery-limited')
+assert(contents('native-ui-lord-discovery.jsonl'):find('"text_type":"function"',1,true))
+start(nil,lord_fixture,true); lord_write_failure=true
+status=auto_request('discover'); assert(status[7]=='error')
+key('script_F4'); no_dispatch('Discovery log failure cannot authorize actions')
+-- Normal users have no automation lease: F2 itself must advance through
+-- discovery pages, including breadth-first pages that add no readable text.
+start(nil,lord_fixture,false)
+local paged_by_f2=false
+for step=1,600 do
+    key('script_F2')
+    if contents('native-ui-lord-discovery.jsonl'):find('"complete":true',1,true) then paged_by_f2=true; break end
+end
+assert(paged_by_f2 and contents('native-ui-lord-discovery.jsonl'):find('Synthetic Lord 99',1,true),'F2 must complete discovery without the developer Discover command')
+no_dispatch('Keyboard-only discovery paging remains read only')
+io=real_io; os.time=real_time; os.date=real_date
+print('PASS: '..scenarios..' frontend scenarios; 86-node/22-control capture, cached wraparound, four allowlisted frontend targets and observed-result checks, confirmations, stale identities, native failures, template/panel changes, lifecycle, clocks and blocked game contexts')

@@ -10,7 +10,7 @@ $refs = [Microsoft.CodeAnalysis.MetadataReference[]]@(
 )
 $parse = [Microsoft.CodeAnalysis.CSharp.CSharpParseOptions]::Default.WithLanguageVersion([Microsoft.CodeAnalysis.CSharp.LanguageVersion]::CSharp5)
 $trees = [Microsoft.CodeAnalysis.SyntaxTree[]]@(
-    foreach ($name in @('Bridge.cs','Native.cs','HotkeyPolicy.cs')) {
+    foreach ($name in @('Bridge.cs','Native.cs','HotkeyPolicy.cs','NvdaController.cs')) {
         [Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree]::ParseText([IO.File]::ReadAllText((Join-Path $root ('companion/' + $name))), $parse)
     }
 )
@@ -20,5 +20,5 @@ $stream = [IO.MemoryStream]::new()
 try {
     $result = $compilation.Emit($stream)
     if (-not $result.Success) { $result.Diagnostics | ForEach-Object { Write-Output $_.ToString() }; throw 'Windows framework compilation failed' }
-    Write-Output 'PASS: Bridge.cs and Native.cs compile as C# 5 against .NET Framework 4.8 (including WinForms)'
+    Write-Output 'PASS: companion C# (including NVDA controller wrapper) compiles as C# 5 against .NET Framework 4.8'
 } finally { $stream.Dispose() }

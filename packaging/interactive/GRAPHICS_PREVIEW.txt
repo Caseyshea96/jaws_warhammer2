@@ -1,0 +1,53 @@
+WARHAMMER II NVDA FRONTEND AUTOMATION PREVIEW 0.6.9
+
+Purpose: establish a repeatable live build/install/launch/test loop while
+Computer Use's injected game keys are not being received by WH2. Physical
+F2/F3/F4 remain available. The development channel drives the SAME navigation
+and native activation functions, not simulated keyboard events.
+
+DEFAULT: automation is disabled. No marker means no timer or incoming command
+processing. This channel is frontend-only; campaign/battle initialization exits
+before it can run. No received text is executed as Lua or shell code.
+
+DEVELOPMENT USE (run Automation.ps1 in desktop Windows PowerShell):
+1. With game closed: .\Automation.ps1 -Action Enable -LeaseSeconds 1800
+2. Start NVDA and the pilot. Launch through Steam -> TW Mod Manager, with the
+   current jaws_access.pack enabled exactly once and DirectX 11 retained.
+3. Visually verify the main menu. Run .\Automation.ps1 -Action Status.
+4. .\Automation.ps1 -Action Next selects New Campaign; Previous/Next test wrap.
+5. .\Automation.ps1 -Action Activate -ExpectedSelectedKey
+   'tree.child2.child1.child0.child0.child0.child0.child1' -DoubleConfirm
+6. .\Automation.ps1 -Action Next captures the resulting screen. Only actual
+   native campaign_select state can confirm New Campaign's result.
+7. Continue is third in the 17-entry campaign list. Its expected key is
+   'tree.child2.child2.child0'. Use two explicit confirmations as in step 5.
+8. .\Automation.ps1 -Action Disable revokes the lease and removes only its
+   marker/request files. Native and speech logs remain.
+
+The two lines in step 5 are one command. No request is automatically resent
+after a timeout or uncertain input. A single-client mutex serializes requests.
+Each command has an expiring lease, unique game session, monotonic sequence,
+UI generation/revision and exact selected-key precondition. Duplicate requests
+cannot repeat native input. Clock changes, lifecycle, navigation and input-source
+changes cancel confirmation. Keyboard and automation confirmations cannot mix.
+
+All native UI validation remains: current root/path, opaque identities, visible
+ancestors, active target, exact observed screen fields, raw text fingerprint and
+the four-second double-confirmation gate. Only New Campaign, Vortex Continue,
+Graphics and Advanced have native input targets. Unknown setup screens and
+Start Campaign remain blocked. The controller route is not a claim that injected
+F2/F3/F4 work; keyboard and automation events are logged separately.
+
+Includes the 0.6.2 fixes: campaign text templates use the diagnostic's one-space
+per CR/LF representation, while raw confirmation strings remain exact. Returned
+main-menu 87-node Tooltip/browser ordering is supported from the actual capture.
+The isolated logger and proven bounded native traversal are preserved. Escaped
+text diagnostics reveal real line breaks. The 17-entry reader remains; campaign
+choices, descriptions and listed races are read-only except verified Continue.
+
+INSTALL: close game and companion, uninstall prior preview, then Install.cmd.
+Keep the existing Quiet Mode add-on enabled. Only jaws_access should be active.
+Do not use Skip Launcher. Backups and older ZIPs remain rollback paths.
+Native logs: native-ui-graphics-preview.log, bridge.jsonl, speech-trace.jsonl.
+Capture remains bounded to 200 nodes/depth 20 and a 2 MB diagnostic log.
+Never equate an acknowledgement or returned click with an observed game result.
