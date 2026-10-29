@@ -22,7 +22,7 @@ $companion = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Whe
 if (-not $companion) {
     $proc = Start-Process powershell.exe -WindowStyle Minimized -PassThru -ArgumentList @(
         '-NoProfile','-Sta','-ExecutionPolicy','Bypass','-File',(Join-Path $app 'Companion.ps1'),
-        '-NoHotkeys','-ScreenReader','Nvda','-TraceSpeech')
+        '-NoHotkeys','-MenuKeys','-ScreenReader','Nvda','-TraceSpeech')
     Start-Sleep -Seconds 2
     $companion = Get-CimInstance Win32_Process -Filter "ProcessId=$($proc.Id)"
     if (-not $companion) { throw 'Companion exited immediately.' }

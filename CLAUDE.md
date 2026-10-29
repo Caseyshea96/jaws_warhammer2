@@ -24,14 +24,15 @@ left intact. Paths like `work/live-0.6.17-lord-discovery` in the docs resolve he
 ## Current state — read before working
 
 - `docs/AUTOMATION_SESSION.md` — full session history and current stop point.
-- `docs/SPEECH_CONVENTIONS_0_6_25.md` — latest live result (NVDA-style speech).
+- `docs/STANDARD_KEYS_0_6_27.md` — latest live result (standard keys, single press).
+- `docs/SPEECH_CONVENTIONS_0_6_25.md` — NVDA-style speech.
 - `docs/LORD_SELECT_0_6_23_TEST.md` — lord selection.
 - `docs/LORD_REFRESH_0_6_21_TEST.md` — automatic refresh.
 - `docs/LORD_READER_0_6_18_TEST.md` — the confirmed `string.find` root cause.
 - `docs/FRONTEND_AUTOMATION.md` — the opt-in automation channel protocol.
 
-Accepted build: **0.6.25** (installed, in source and packaging). 0.6.23, 0.6.21,
-0.6.18 and 0.6.14 are previous good builds; 0.6.15–0.6.17 are failed candidates — never deploy them.
+Accepted build: **0.6.27** (installed, in source and packaging). 0.6.25, 0.6.23,
+0.6.21, 0.6.18 and 0.6.14 are previous good builds; 0.6.15–0.6.17 are failed candidates — never deploy them.
 
 **Never call `string.find` in the runtime.** In WH2 the plain form returns nil
 for a match and then makes `string.sub` return numbers (confirmed live). Use
@@ -55,8 +56,10 @@ for a match and then makes `string.sub` return numbers (confirmed live). Use
 
 Follow NVDA conventions (JAWS later): `name, role, value, states, N of M`; the
 screen name once on arrival; short messages; no engine words or developer
-detail in speech. See docs/SPEECH_CONVENTIONS_0_6_25.md. Next: standard keys
-and single-press activation (owner-approved direction, not built yet).
+detail in speech. See docs/SPEECH_CONVENTIONS_0_6_25.md. Keys: arrows/Tab/Home/End/Enter/Space/
+letters via the companion (`-MenuKeys`); Escape and Shift+Tab (Steam overlay)
+are never taken. Activation is one press; Start Campaign stays blocked.
+See docs/STANDARD_KEYS_0_6_27.md.
 
 ## Live test scripts (`tools/live/`)
 
@@ -82,8 +85,10 @@ The owner approved direct launch (`-Direct`) instead of clicking PLAY in TWMM.
 
 ## Driving the game
 
-- Injected keystrokes (F2/F3/F4, Escape, Space) do **not** reach the game. Drive
-  navigation with the opt-in automation channel (`Automation.ps1 -Action
+- Injected keystrokes do **not** reach the game, but they do reach the companion's
+  menu keys: `tools/live/Send-Keys.ps1 -Keys Down,Enter,T` (click the game's
+  title bar first so it has focus). For scripted checks, use the opt-in
+  automation channel (`Automation.ps1 -Action
   Enable/Status/Next/Previous/Discover/Activate/Disable`), not key injection.
 - Check the screen with `tools/live/Capture-Screen.ps1` and read the PNG when
   no computer-use tool is available; use computer use (if present) only to
@@ -145,7 +150,7 @@ authorized scope.
 - Verify each major transition before continuing.
 - Never repeatedly click a control without checking the resulting state.
 - If the same launch step fails twice, investigate rather than retrying blindly.
-- Preserve the last known working build (0.6.25; before it 0.6.23) as the rollback.
+- Preserve the last known working build (0.6.27; before it 0.6.25) as the rollback.
 - Do not delete game saves or unrelated configuration files.
 - Distinguish launcher failures, mod-loading failures, game crashes, and
   accessibility integration failures.

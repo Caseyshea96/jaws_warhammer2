@@ -9,7 +9,7 @@ function Test-GameFolder([string]$Path) {
 try {
     $manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'manifest.json') -Raw | ConvertFrom-Json
     # Only fixed local filenames from our package can be installed.
-    $expectedNames = @('jaws_access.pack','Companion.ps1','Bridge.cs','NvdaController.cs','Protocol.ps1','Uninstall.ps1','README.txt','Start Pilot.cmd','Uninstall.cmd')
+    $expectedNames = @('jaws_access.pack','Companion.ps1','Bridge.cs','NvdaController.cs','MenuKeys.cs','Protocol.ps1','Uninstall.ps1','README.txt','Start Pilot.cmd','Uninstall.cmd')
     if ($manifest.automation_protocol -eq 1) { $expectedNames += 'Automation.ps1' }
     if ($manifest.screen_reader -eq 'NVDA') {
         $expectedNames += @('nvdaControllerClient.dll','LICENSE-NVDA-CONTROLLER.txt','warhammer2-quiet-mode-0.1.0.nvda-addon')

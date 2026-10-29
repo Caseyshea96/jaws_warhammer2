@@ -13,6 +13,8 @@ local lord_write_failure
 local automation_poll, automation_timer, automation_base, automation_status_failure, automation_timer_failure
 local scenarios = 0
 local probe_flag = false
+local single_press = false -- tests of default single-press activation
+local keys_poll
 local function build_nodes(layout)
     local result = {}
     for prefix, row in pairs(layout) do
@@ -56,9 +58,31 @@ local function start(mode, layout, enable_automation, setup_status_failure, envi
     nodes = build_nodes(layout or fixture)
     automation_poll,automation_timer,automation_status_failure=nil,nil,setup_status_failure or false
     get_tm=function() error('Unavailable frontend model timer must not be used') end
-    timer_manager=nil; real_timer=nil; automation_timer_failure=setup_timer_failure
+    timer_manager=nil; automation_timer_failure=setup_timer_failure
+    keys_poll=nil
+    local function fire_timer(name)
+        local listener=listeners[name .. '_real_timer']
+        assert(listener and listener[1]=='RealTimeTrigger')
+        local context={string=name}
+        if listener[2](context) then listener[3](context) end
+    end
+    real_timer={
+        unregister=function(name)
+            if name=='warhammer_accessibility_keys' then keys_poll=nil; return end
+            assert(name=='warhammer_accessibility_automation'); automation_poll=nil
+        end,
+        register_singleshot=function(name,interval)
+            if name=='warhammer_accessibility_keys' then
+                assert(interval==100)
+                keys_poll=function() keys_poll=nil; fire_timer(name) end
+                return
+            end
+            error('Automation timer requires a lease')
+        end}
     os.getenv=real_getenv
     automation_base=(real_getenv('LOCALAPPDATA') or '') .. '/JawsWarhammer2/'
+    -- Most legacy scenarios exercise press-twice confirmation.
+    if not single_press and context_mode=='frontend' then files[automation_base .. 'confirm-activations.flag']={'1'} end
     if environment_disappears then
         local lookups=0
         os.getenv=function(name)
@@ -68,10 +92,15 @@ local function start(mode, layout, enable_automation, setup_status_failure, envi
     end
     if probe_flag then files[automation_base .. 'string-find-probe.flag']={'1'} end
     if enable_automation then
+        local keys_timer=real_timer
         files[automation_base .. 'automation-enabled.tsv']={type(enable_automation)=='string' and enable_automation or ('WH2LEASE1\t' .. string.rep('a',32) .. '\t1060\n')}
         real_timer={
-            unregister=function(name) assert(name=='warhammer_accessibility_automation'); automation_poll=nil end,
+            unregister=function(name)
+                if name=='warhammer_accessibility_keys' then return keys_timer.unregister(name) end
+                assert(name=='warhammer_accessibility_automation'); automation_poll=nil
+            end,
             register_singleshot=function(name,interval)
+                if name=='warhammer_accessibility_keys' then return keys_timer.register_singleshot(name,interval) end
                 assert(name=='warhammer_accessibility_automation' and interval==250)
                 if automation_timer_failure then error('Fixture real timer registration failed') end
                 automation_poll=function()
@@ -156,10 +185,10 @@ assert(contents('native-ui-graphics-preview.log'):find('tree.nodes\tnumber\t86',
 local _, captures = contents('native-ui-graphics-preview.log'):gsub('capture.COMPLETE','')
 assert(captures==1)
 choose_graphics(); key('script_F4')
-assert(last():find('Press F4 again',1,true), last()); no_dispatch('First F4 only arms')
+assert(last():find('Press again',1,true), last()); no_dispatch('First F4 only arms')
 now=1001; key('script_F4')
 assert(#dispatches==1 and dispatches[1]==graphics_key)
-assert(says('activated. Press F2 to read the new screen.'))
+assert(says(' activated.'))
 key('script_F4'); assert(#dispatches==1, 'Third F4 cannot reuse confirmation')
 -- All other classified main-menu controls remain blocked, including Continue and Quit.
 start()
@@ -171,7 +200,7 @@ for i=1,22 do
 end
 -- Navigation cancels confirmation even when returning to the same entry.
 start(); choose_graphics(); key('script_F4'); key('script_F2'); key('script_F3'); key('script_F4')
-no_dispatch('Navigation cancels'); assert(last():find('Press F4 again',1,true))
+no_dispatch('Navigation cancels'); assert(last():find('Press again',1,true))
 -- Timeouts and clock rollback do not send input or retain the old confirmation.
 for _, delta in ipairs({5,-1}) do
     start(); choose_graphics(); key('script_F4'); now=now+delta; key('script_F4')
@@ -231,7 +260,7 @@ end
 key('script_F4'); no_dispatch('Leaf replaced during final resolution')
 -- A click that recreates the UI is still reported only as input sent.
 start(); choose_graphics(); key('script_F4'); click_hook=function() created() end
-key('script_F4'); assert(#dispatches==1); assert(says('activated. Press F2 to read the new screen.'))
+key('script_F4'); assert(#dispatches==1); assert(says(' activated.'))
 -- Errors after native dispatch may not be presented as confirmed success.
 start(); choose_graphics(); key('script_F4'); click_hook=function() error('native click exception') end
 key('script_F4'); assert(#dispatches==1); assert(not last():find('Graphics opened',1,true))
@@ -363,7 +392,7 @@ local function choose_advanced()
     assert(says('Advanced, button','4 of 7'),last())
 end
 start(nil,graphics_fixture); choose_advanced(); key('script_F4')
-assert(last():find('Advanced. Press F4 again',1,true)); no_dispatch('First Advanced confirmation')
+assert(last():find('Advanced. Press again',1,true)); no_dispatch('First Advanced confirmation')
 click_hook=function() install_scene(advanced_fixture) end
 key('script_F4'); assert(#dispatches==1 and dispatches[1]==advanced_key)
 assert(not contents('native-ui-graphics-preview.log'):find('activation.observed_result',1,true))
@@ -485,7 +514,7 @@ assert(says('Apply UI Scale','33 of 33'))
 -- Regression: persisted windowed mode must not block Advanced view activation.
 -- This uses the actual failing 0.5.9 basic-screen capture.
 start(nil,windowed_fixture); choose_advanced(); key('script_F4')
-assert(last():find('Advanced. Press F4 again',1,true),last())
+assert(last():find('Advanced. Press again',1,true),last())
 click_hook=function() install_scene(captured_advanced_fixture) end
 key('script_F4'); assert(#dispatches==1 and dispatches[1]==advanced_key)
 key('script_F2'); assert(says('Benchmark','1 of 33'))
@@ -522,7 +551,7 @@ nodes[advanced_key].address=newproxy(); key('script_F4'); no_dispatch('Windowed 
 local campaign_key='tree.child2.child1.child0.child0.child0.child0.child1'
 local function choose_campaign() key('script_F2'); assert(says('New Campaign','1 of 22')) end
 start(); choose_campaign(); key('script_F4'); no_dispatch('Campaign first press only arms')
-assert(last():find('New Campaign. Press F4 again',1,true))
+assert(last():find('New Campaign. Press again',1,true))
 key('script_F4'); assert(#dispatches==1 and dispatches[1]==campaign_key)
 key('script_F4'); assert(#dispatches==1, 'No reusing campaign confirmation')
 -- Synthetic unknown setup data is only a test, not a captured game template.
@@ -603,10 +632,10 @@ for _, layout in ipairs({campaign_fixture,tooltip_fixture}) do
     key('script_F3'); assert(says('17 of 17'))
     -- Activating this one captured view button requires both F4 presses.
     start(nil,layout); choose_continue(); key('script_F4'); no_dispatch('Continue first press')
-    assert(last():find('Continue. Press F4 again',1,true),last())
+    assert(last():find('Continue. Press again',1,true),last())
     click_hook=function() install_scene(unknown_setup) end
     key('script_F4'); assert(#dispatches==1 and dispatches[1]==continue_key)
-    assert(says('activated. Press F2 to read the new screen.'))
+    assert(says(' activated.'))
     key('script_F2'); assert(says('This screen is not supported yet.'))
     assert(contents('native-ui-graphics-preview.log'):find('activation.result_requires_mapping\tstring\tContinue:unknown',1,true))
     assert(not contents('native-ui-graphics-preview.log'):find('activation.observed_result',1,true))
@@ -703,7 +732,7 @@ local store_tip='tree.child2.child0.child0.child1.child1.child1.child10.child0'
 for _, breaks in ipairs({'\r\n','\n\n','\r\r'}) do
     start(nil,campaign_fixture)
     nodes[store_tip].data.GetTooltipText=nodes[store_tip].data.GetTooltipText:gsub('  Left',breaks..'Left',1)
-    choose_continue(); key('script_F4'); assert(last():find('Continue. Press F4 again',1,true),last())
+    choose_continue(); key('script_F4'); assert(last():find('Continue. Press again',1,true),last())
     key('script_F4'); assert(#dispatches==1 and dispatches[1]==continue_key)
     assert(contents('native-ui-graphics-preview.log'):find('campaign.tooltip.escaped',1,true))
 end
@@ -716,7 +745,7 @@ end
 -- Exact raw strings still guard a pending confirmation, even when log rows match.
 start(nil,campaign_fixture)
 nodes[store_tip].data.GetTooltipText=nodes[store_tip].data.GetTooltipText:gsub('  Left','\r\nLeft',1)
-choose_continue(); key('script_F4'); assert(last():find('Press F4 again',1,true))
+choose_continue(); key('script_F4'); assert(last():find('Press again',1,true))
 nodes[store_tip].data.GetTooltipText=nodes[store_tip].data.GetTooltipText:gsub('\r\n','\n\n')
 key('script_F4'); no_dispatch('Byte-level line break change during confirmation')
 -- Do not normalize tabs, spacing changes, words, IDs, states or non-campaign fields.
@@ -732,7 +761,7 @@ start(); nodes[graphics_key].data.GetTooltipText='\r\n'; choose_graphics(); key(
 -- Actual returned main has Tooltip child4 and browser child5, not the reverse.
 local returned_main=dofile('tests/fixtures/frontend_menu_tooltip_0_6_1.lua')
 start(nil,returned_main); key('script_F2'); assert(says('New Campaign','1 of 22'))
-key('script_F4'); assert(last():find('New Campaign. Press F4 again',1,true),last())
+key('script_F4'); assert(last():find('New Campaign. Press again',1,true),last())
 click_hook=function() install_scene(campaign_fixture) end
 key('script_F4'); assert(#dispatches==1 and dispatches[1]==campaign_key)
 key('script_F2'); assert(says('1 of 17'))
@@ -1096,13 +1125,13 @@ for n=1,lord_total+5 do key('script_F2') end
 assert(capture_complete(),'Capture completes before selection tests')
 assert(browse_to('Teclis, radio button, not checked'),'Portraits are spoken as lord choices')
 assert(not last():find('read only',1,true),'Lord choices are actionable, not read only')
-key('script_F4'); assert(says('Select Teclis. Press F4 again to confirm.')); no_dispatch('First F4 only arms')
+key('script_F4'); assert(says('Select Teclis. Press again to confirm.')); no_dispatch('First F4 only arms')
 click_hook=function()
     nodes[tyrion_portrait].data.CurrentState='active'; nodes[portrait].data.CurrentState='selected'
     nodes['tree.child2.child0.child2.child0.child4'].data.GetStateText='Teclis'
 end
 key('script_F4'); assert(#dispatches==1 and dispatches[1]==portrait,'Second F4 selects exactly the chosen portrait')
-assert(says('Teclis chosen. Press F2 to read the updated screen.'))
+assert(says('Teclis chosen.'))
 click_hook=nil
 key('script_F2')
 assert(contents('native-ui-graphics-preview.log'):find('activation.observed_result\tstring\tlord-match:Teclis',1,true),'Selection observed from the fresh capture')
@@ -1126,10 +1155,10 @@ start(nil,lord_live,false)
 for n=1,lord_total+5 do key('script_F2') end
 assert(browse_to('Teclis, radio button, not checked'))
 key('script_F4'); key('script_F3'); assert(browse_to('Teclis, radio button, not checked'))
-key('script_F4'); assert(last():find('Press F4 again',1,true),'Browsing cancelled the first confirmation'); no_dispatch('Cancelled confirmation')
+key('script_F4'); assert(last():find('Press again',1,true),'Browsing cancelled the first confirmation'); no_dispatch('Cancelled confirmation')
 now=now+5
 key('script_F4'); assert(says('Confirmation timed out')); no_dispatch('Expired confirmation')
-key('script_F4'); assert(last():find('Press F4 again',1,true))
+key('script_F4'); assert(last():find('Press again',1,true))
 nodes[portrait].data.Id='Teclis impostor'
 key('script_F4'); assert(says('The screen changed. Press F2 and try again.') and contents('native-ui-graphics-preview.log'):find('activation.lord_unverified\tstring\tidentity',1,true)); no_dispatch('Changed identity')
 -- A changed watched field blocks before arming.
@@ -1173,7 +1202,7 @@ local function no_engine_words(text)
         and not text:find('Lord choice:',1,true) and not text:find('campaign choice',1,true)
 end
 start()
-assert(contents('bridge.jsonl'):find('Warhammer accessibility ready. F2 and F3 move, F4 activates.',1,true),'Short startup message')
+assert(contents('bridge.jsonl'):find('Warhammer accessibility ready. Arrow keys move, Enter activates.',1,true),'Short startup message')
 key('script_F2'); assert(spoken()=='Main menu. New Campaign, button, 1 of 22',spoken())
 key('script_F2'); assert(spoken()=='Continue Campaign, button, unavailable, 2 of 22',spoken())
 key('script_F3'); assert(spoken()=='New Campaign, button, 1 of 22','Screen name is spoken once')
@@ -1225,5 +1254,67 @@ assert(browse_to('Teclis, radio button, not checked'))
 nodes[portrait].data.CurrentState='down'
 key('script_F4'); assert(says('The screen changed. Press F2 and try again.'))
 assert(contents('native-ui-graphics-preview.log'):find('activation.lord_blocked\tstring\tstate:down',1,true)); no_dispatch('Pressed state blocks')
+-- 0.6.26: single press by default (no confirm-activations.flag).
+single_press=true
+start(); key('script_F2'); assert(says('New Campaign, button'))
+click_hook=function() install_scene(campaign_fixture) end
+key('script_F4'); assert(#dispatches==1 and dispatches[1]==campaign_key,'One press activates')
+assert(spoken()=='New Campaign activated.',spoken()); click_hook=nil
+start(nil,lord_live,false)
+assert(browse_to('Teclis, radio button, not checked'))
+key('script_F4'); assert(#dispatches==1 and dispatches[1]==portrait and spoken()=='Teclis chosen.','One press chooses a lord')
+start(nil,lord_live,true); status=finish_lord_discovery()
+for n=1,lord_total do status=auto_request('next'); if status[10]=='Lord choice: Teclis' then break end end
+status=auto_request('activate'); assert(status[7]=='input-sent' and #dispatches==1,'One automation request activates')
+start(nil,lord_live,false)
+assert(browse_to('Start Campaign, button'))
+key('script_F4'); assert(spoken()=='Not supported yet.'); no_dispatch('Start Campaign stays blocked with single press')
+-- Companion keys: same handlers, bound to session and UI generation.
+local function reader_state()
+    local text=contents('reader-state.tsv')
+    local values={}
+    for value in text:gmatch('[^\t\n]+') do values[#values+1]=value end
+    return values
+end
+local key_files_seq=0
+local function send_keys(owner, actions, session_value, generation_value)
+    local state=reader_state()
+    local lines={'WH2KEYS1\t' .. owner .. '\t' .. (session_value or state[2]) .. '\t' .. (generation_value or state[3])}
+    for _,action in ipairs(actions) do key_files_seq=key_files_seq+1; lines[#lines+1]=key_files_seq .. '\t' .. action end
+    files[automation_base .. 'keys.tsv']={table.concat(lines,'\n') .. '\n'}
+    assert(keys_poll,'Key timer active'); keys_poll()
+end
+start()
+assert(keys_poll and automation_poll==nil,'Key timer runs without an automation lease')
+local state=reader_state()
+assert(state[1]=='WH2READER1' and state[4]=='1','Reader state published in the frontend')
+send_keys('companion-a',{'next','next'})
+assert(not contents('bridge.jsonl'):find('New Campaign, button',1,true),'Backlog from before the reader saw this companion is skipped')
+send_keys('companion-a',{'next'}); assert(spoken()=='Main menu. New Campaign, button, 1 of 22',spoken())
+send_keys('companion-a',{'previous'}); assert(spoken()=='Quit, button, 22 of 22',spoken())
+send_keys('companion-a',{'first'}); assert(spoken()=='New Campaign, button, 1 of 22',spoken())
+send_keys('companion-a',{'last'}); assert(spoken()=='Quit, button, 22 of 22',spoken())
+send_keys('companion-a',{'first','letter:q'}); assert(says('Quest Battle, button'),spoken())
+send_keys('companion-a',{'letter:q'}); assert(says('Quick Battle, button'),spoken())
+send_keys('companion-a',{'letter:q'}); assert(says('Quit, button'),spoken())
+send_keys('companion-a',{'letter:q'}); assert(says('Quest Battle, button'),'First-letter navigation wraps')
+local before=spoken()
+send_keys('companion-a',{'letter:z'}); assert(spoken()==before,'No match stays silent')
+send_keys('companion-a',{'next'},'another-session'); assert(spoken()==before,'Other session ignored')
+send_keys('companion-a',{'next'},nil,'99'); assert(spoken()==before,'Other UI generation ignored')
+send_keys('companion-a',{'bogus','letter:1'}); assert(spoken()==before)
+assert(contents('native-ui-graphics-preview.log'):find('keys.rejected\tstring\taction',1,true))
+send_keys('companion-b',{'next'}); assert(spoken()==before,'A restarted companion starts fresh')
+local queued={}
+for n=1,10 do queued[n]='next' end
+send_keys('companion-b',queued)
+assert(contents('native-ui-graphics-preview.log'):find('keys.skipped\tstring\tmore than eight pending',1,true))
+send_keys('companion-b',{'first'}); assert(spoken()=='New Campaign, button, 1 of 22')
+click_hook=function() install_scene(campaign_fixture) end
+send_keys('companion-b',{'activate'}); assert(#dispatches==1 and dispatches[1]==campaign_key,'Enter activates through the same handler')
+click_hook=nil
+send_keys('companion-b',{'next'}); assert(spoken()=='Select Campaign. The Eye of the Vortex, radio button, checked, 1 of 17',spoken())
+assert(reader_state()[5]=='campaign_selection','Reader state follows the screen')
+single_press=false
 io=real_io; os.time=real_time; os.date=real_date
 print('PASS: '..scenarios..' frontend scenarios; 86-node/22-control capture, cached wraparound, four allowlisted frontend targets and observed-result checks, confirmations, stale identities, native failures, template/panel changes, lifecycle, clocks and blocked game contexts')

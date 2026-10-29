@@ -15,7 +15,7 @@ try {
             }
             Remove-Item -LiteralPath $target
         }
-        $installedNames = @('Companion.ps1','Bridge.cs','NvdaController.cs','Protocol.ps1','Uninstall.ps1','README.txt','Start Pilot.cmd','Uninstall.cmd')
+        $installedNames = @('Companion.ps1','Bridge.cs','NvdaController.cs','MenuKeys.cs','Protocol.ps1','Uninstall.ps1','README.txt','Start Pilot.cmd','Uninstall.cmd')
         if ($manifest.automation_protocol -eq 1) { $installedNames += 'Automation.ps1' }
         if ($manifest.screen_reader -eq 'NVDA') { $installedNames += @('nvdaControllerClient.dll','LICENSE-NVDA-CONTROLLER.txt','warhammer2-quiet-mode-0.1.0.nvda-addon') }
         else { $installedNames += @('Native.cs','HotkeyPolicy.cs') }

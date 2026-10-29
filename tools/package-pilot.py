@@ -11,7 +11,7 @@ interactive_nvda = "--interactive-nvda" in sys.argv or graphics_preview
 if diagnostic and interactive_nvda:
     raise SystemExit('Choose diagnostic or interactive NVDA, not both')
 nvda = diagnostic or interactive_nvda
-version = "0.6.25-nvda-automation-preview" if graphics_preview else "0.5.3-nvda-scanner-compare" if scanner_compare else "0.4.3-nvda-diagnostic" if diagnostic else ("0.5.2-nvda-preview" if interactive_nvda else "0.2.5-dev")
+version = "0.6.27-nvda-automation-preview" if graphics_preview else "0.5.3-nvda-scanner-compare" if scanner_compare else "0.4.3-nvda-diagnostic" if diagnostic else ("0.5.2-nvda-preview" if interactive_nvda else "0.2.5-dev")
 pack_name = "jaws_access_graphics_preview.pack" if graphics_preview else "jaws_access_scanner_compare.pack" if scanner_compare else "jaws_access_diagnostic.pack" if diagnostic else ("jaws_access_interactive.pack" if interactive_nvda else "jaws_access.pack")
 
 root = Path(__file__).resolve().parents[1]
@@ -38,7 +38,7 @@ if nvda:
     files['warhammer2-quiet-mode-0.1.0.nvda-addon'] = (
         root / 'artifacts/warhammer2-quiet-mode-0.1.0.nvda-addon').read_bytes()
     files['Start Pilot.cmd'] = files['Start Pilot.cmd'].replace(
-        b' -Launch', b' -Launch -NoHotkeys -ScreenReader Nvda')
+        b' -Launch', b' -Launch -NoHotkeys -ScreenReader Nvda' + (b' -MenuKeys' if graphics_preview else b''))
     files['README.txt'] = (root / ('packaging/interactive/GRAPHICS_PREVIEW.txt' if graphics_preview else 'diagnostics/SCANNER_COMPARE.txt' if scanner_compare else 'packaging/interactive/README.txt' if interactive_nvda else 'diagnostics/README.txt')).read_bytes()
     assert files['Start Pilot.cmd'].count(b'-NoHotkeys') == 2
     assert files['Start Pilot.cmd'].count(b'-ScreenReader Nvda') == 2
@@ -56,7 +56,7 @@ manifest = {
     'files': {name: hashlib.sha256(data).hexdigest() for name, data in sorted(files.items())}
 }
 files['manifest.json'] = (json.dumps(manifest, indent=2) + '\n').encode()
-expected = {'jaws_access.pack','Companion.ps1','Bridge.cs','NvdaController.cs','Protocol.ps1',
+expected = {'jaws_access.pack','Companion.ps1','Bridge.cs','NvdaController.cs','MenuKeys.cs','Protocol.ps1',
             'Install.ps1','Install.cmd','Uninstall.ps1','Uninstall.cmd','Start Pilot.cmd','README.txt','manifest.json'}
 if graphics_preview:
     expected.add('Automation.ps1')

@@ -369,3 +369,11 @@ visually that the intro was skipped. Comparison screenshots: normal launch
 black at 23 s, ready at 34 s, menu at ~42 s (`work/startup-normal`); skip
 launch menu on screen at ready, 28 s (`work/live-0.6.25-skip-intro`). Not
 shipped to players; game folder and TWMM profile unchanged.
+
+## 0.6.27 — standard keys and single-press activation (October 29)
+
+Companion `-MenuKeys` takes arrows, Tab, Home/End, Enter/Space and letters only
+while the game is focused on a menu (mod heartbeat), and sends them to the mod
+through keys.tsv; activation is one press. Live: full menu path to choosing
+lords by keyboard. Shift+Tab left to Steam's overlay. 0.6.27 installed and
+accepted. Details: STANDARD_KEYS_0_6_27.md.

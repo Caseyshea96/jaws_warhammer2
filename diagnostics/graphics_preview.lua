@@ -40,6 +40,7 @@ local snapshot_node_count = 0
 local lord_discovery
 local announce_prefix = ''
 local last_screen -- screen whose title was last spoken
+local nav_target -- 'first', 'last' or {letter=x} for the next announcement
 local lord_awaiting -- lord name sent by the last selection, until observed
 local screen_kind, awaiting_result = 'unknown', nil
 local function cancel() pending = nil end
@@ -341,7 +342,7 @@ for _, base in ipairs(bases) do
     local path = base .. 'native-ui-graphics-preview.log'
     local f = io.open(path, 'w')
     if f then
-        local header = 'WH2 native UI diagnostic 0.6.25-nvda-automation-preview\n'
+        local header = 'WH2 native UI diagnostic 0.6.27-nvda-automation-preview\n'
         f:write(header); f:close(); log_bytes = #header + 1
         log_path = path; bridge_path = base .. (base == '' and 'jaws_access.jsonl' or 'bridge.jsonl')
         local bridge = io.open(bridge_path, 'w'); if bridge then bridge:close() end
@@ -359,6 +360,13 @@ end
 -- Fallback that formats nothing, for logging after a failed string call.
 local function plain_log(stage, text)
     if log_path then append(log_path, stage .. '\tstring\t' .. (type(text) == 'string' and text or ('non-string ' .. type(text)))) end
+end
+-- Activation is a single press, as in any program. A confirm-activations.flag
+-- beside the log restores press-twice confirmation for every action.
+local confirm_activations = false
+if log_path then
+    local flag = io.open(string.sub(log_path, 1, #log_path - #'native-ui-graphics-preview.log') .. 'confirm-activations.flag', 'r')
+    if flag then flag:close(); confirm_activations = true end
 end
 -- Opt-in confirmation probe, off unless string-find-probe.flag sits beside
 -- the log. It may break later string calls, so run it in a separate launch.
@@ -905,7 +913,22 @@ local function announce_control(step)
         else speak('This screen is not supported yet.') end
         return
     end
-    if control_index == 0 then control_index = step > 0 and 1 or #controls
+    local target = nav_target; nav_target = nil
+    if target == 'first' then control_index = 1
+    elseif target == 'last' then control_index = #controls
+    elseif type(target) == 'table' then
+        -- First-letter navigation: next item whose name starts with the
+        -- letter, wrapping; no match leaves the focus where it is, silently.
+        local found
+        for offset = 1, #controls do
+            local index = ((control_index - 1 + offset) % #controls) + 1
+            local candidate = controls[index]
+            local name = describe(candidate)
+            if type(name) == 'string' and string.lower(string.sub(name, 1, 1)) == target.letter then found = index; break end
+        end
+        if not found then return end
+        control_index = found
+    elseif control_index == 0 then control_index = step > 0 and 1 or #controls
     else control_index = ((control_index - 1 + step) % #controls) + 1 end
     local item = controls[control_index]
     if screen_kind=='lord_discovery' then item.raw_name=item.raw_name or item.name; item.name=lord_spoken_name(item) end
@@ -1138,22 +1161,24 @@ local function activate_control()
     end
     control_index = selected_index
     local node = resolve_target(fresh, target)
-    local now = clock_value()
-    if pending and (now < pending.armed_at or now > pending.deadline) then
-        cancel(); speak('Confirmation timed out. Press F4 again.'); return
-    end
-    if not pending then
-        pending = {target = target.key, armed_at = now, deadline = now + 4, fingerprint = fresh.fingerprint, generation = generation, origin = activation_origin}
-        activation_outcome = 'armed'
-        log('activation.armed', now)
-        speak(target.name .. '. Press F4 again to confirm.'); return
-    end
-    if pending.target ~= target.key or pending.generation ~= generation or pending.fingerprint ~= fresh.fingerprint then
-        invalidate(); speak('Cancelled: the screen changed.'); return
+    if confirm_activations then
+        local now = clock_value()
+        if pending and (now < pending.armed_at or now > pending.deadline) then
+            cancel(); speak('Confirmation timed out. Press again.'); return
+        end
+        if not pending then
+            pending = {target = target.key, armed_at = now, deadline = now + 4, fingerprint = fresh.fingerprint, generation = generation, origin = activation_origin}
+            activation_outcome = 'armed'
+            log('activation.armed', now)
+            speak(target.name .. '. Press again to confirm.'); return
+        end
+        if pending.target ~= target.key or pending.generation ~= generation or pending.fingerprint ~= fresh.fingerprint then
+            invalidate(); speak('Cancelled: the screen changed.'); return
+        end
     end
     if log_failed then invalidate(); speak('Accessibility log unavailable. Restart the game.'); return end
     send_click(node, target.name)
-    speak(target.name .. ' activated. Press F2 to read the new screen.')
+    speak(target.name .. ' activated.')
 end
 local function screen_still_current()
     -- Unknown setup screens can change descendants without replacing the panel.
@@ -1566,23 +1591,25 @@ local function lord_activate()
     if not interactive_ok or interactive~=true or not state_ok or (state~='active' and state~='hover') then
         log('activation.lord_blocked', 'state:' .. tostring(state)); invalidate(); speak('The screen changed. Press F2 and try again.'); return
     end
-    local now=clock_value()
-    if pending and (now<pending.armed_at or now>pending.deadline) then
-        cancel(); speak('Confirmation timed out. Press F4 again.'); return
-    end
-    if not pending then
-        pending={target=item.key,armed_at=now,deadline=now+4,fingerprint=item.id,generation=generation,origin=activation_origin}
-        activation_outcome='armed'
-        log('activation.armed',now)
-        speak('Select ' .. item.id .. '. Press F4 again to confirm.'); return
-    end
-    if pending.target~=item.key or pending.generation~=generation or pending.fingerprint~=item.id then
-        invalidate(); speak('Cancelled: the selection changed.'); return
+    if confirm_activations then
+        local now=clock_value()
+        if pending and (now<pending.armed_at or now>pending.deadline) then
+            cancel(); speak('Confirmation timed out. Press again.'); return
+        end
+        if not pending then
+            pending={target=item.key,armed_at=now,deadline=now+4,fingerprint=item.id,generation=generation,origin=activation_origin}
+            activation_outcome='armed'
+            log('activation.armed',now)
+            speak('Select ' .. item.id .. '. Press again to confirm.'); return
+        end
+        if pending.target~=item.key or pending.generation~=generation or pending.fingerprint~=item.id then
+            invalidate(); speak('Cancelled: the selection changed.'); return
+        end
     end
     if log_failed then invalidate(); speak('Accessibility log unavailable. Restart the game.'); return end
     lord_awaiting=item.id
     send_click(node,'Lord choice: ' .. item.id)
-    speak(item.id .. ' chosen. Press F2 to read the updated screen.')
+    speak(item.id .. ' chosen.')
 end
 
 local function lifecycle(name)
@@ -1638,6 +1665,7 @@ local function navigate(shortcut, source)
         else log('navigation.COMPLETE', shortcut) end
     end)
     if not reported then plain_log('navigation.REPORT_FAILED', ok and 'after-success' or 'after-error') end
+    nav_target = nil
     return ok
 end
 local function request_activation(source)
@@ -1764,7 +1792,7 @@ local function publish_status()
     if #label > 800 then label = label:sub(1,800):gsub('[\192-\255][\128-\191]*$','') end
     local deadline='0'
     if pending then deadline=decimal_add(unix_value(),math.max(0,pending.deadline-clock_value())) end
-    local values = {'WH2STATUS1','0.6.25-nvda-automation-preview',session,tostring(generation),
+    local values = {'WH2STATUS1','0.6.27-nvda-automation-preview',session,tostring(generation),
         tostring(interaction_revision),tostring(auto_seq),auto_result,screen_kind,
         item and item.key or '-',label,tostring(#controls),pending and pending.target or '-',
         deadline,core:is_ui_created() and '1' or '0',
@@ -1910,8 +1938,109 @@ start_automation = function()
         pcall(function() if auto_timer then auto_timer:remove_callback(auto_name) end end)
     end
 end
+-- Standard screen reader keys from the companion (arrows, Tab, Home/End,
+-- Enter/Space, letters). They call the same handlers as F2/F3/F4. Events are
+-- bound to this game session and UI generation; any backlog present when the
+-- reader first sees a companion is skipped, never replayed. The companion only
+-- sends keys while reader-state.tsv (rewritten here every second) is fresh.
+local keys_name = 'warhammer_accessibility_keys'
+local keys_base, keys_owner, keys_seq, keys_running, keys_ticks, keys_errors, keys_state = nil, nil, 0, false, 0, 0, nil
+local function publish_reader_state(force)
+    if not keys_base then return end
+    local line = 'WH2READER1\t' .. session .. '\t' .. generation .. '\t' .. (core:is_frontend() and '1' or '0') .. '\t' .. screen_kind .. '\n'
+    if not force and line == keys_state and keys_ticks % 10 ~= 0 then return end
+    local f = io.open(keys_base .. 'reader-state.tsv', 'w')
+    if not f then return end
+    f:write(line); f:close(); keys_state = line
+end
+local function key_action(action)
+    if action == 'next' then navigate('script_F2', 'keys')
+    elseif action == 'previous' then navigate('script_F3', 'keys')
+    elseif action == 'first' then nav_target = 'first'; navigate('script_F2', 'keys')
+    elseif action == 'last' then nav_target = 'last'; navigate('script_F3', 'keys')
+    elseif action == 'activate' then request_activation('keys')
+    elseif #action == 8 and string.sub(action, 1, 7) == 'letter:' then
+        local letter = string.sub(action, 8, 8)
+        local byte = string.byte(letter)
+        if byte and byte >= 97 and byte <= 122 then nav_target = {letter = letter}; navigate('script_F2', 'keys')
+        else plain_log('keys.rejected', 'letter') end
+    else plain_log('keys.rejected', 'action') end
+end
+local poll_key_events
+local function poll_keys()
+    keys_ticks = keys_ticks + 1
+    poll_key_events()
+    publish_reader_state(false) -- after the events, so screen changes show at once
+end
+poll_key_events = function()
+    local raw = read_small(keys_base .. 'keys.tsv', 4096)
+    if not raw then return end
+    local lines, start = {}, 1
+    for index = 1, #raw do
+        if string.byte(raw, index) == 10 then lines[#lines + 1] = string.sub(raw, start, index); start = index + 1 end
+    end
+    local header = fields(lines[1], 4)
+    if not header or header[1] ~= 'WH2KEYS1' then return end
+    local events, newest = {}, 0
+    for index = 2, math.min(#lines, 33) do
+        local event = fields(lines[index], 2)
+        local number = event and integer(event[1])
+        if number then events[#events + 1] = {seq = number, action = event[2]}; if number > newest then newest = number end end
+    end
+    if header[2] ~= keys_owner then
+        keys_owner, keys_seq = header[2], newest
+        plain_log('keys.owner', 'companion connected; earlier events skipped')
+        return
+    end
+    if header[3] ~= session or header[4] ~= tostring(generation) then
+        if newest > keys_seq then keys_seq = newest; plain_log('keys.skipped', 'other session or UI generation') end
+        return
+    end
+    table.sort(events, function(a, b) return a.seq < b.seq end)
+    local handled = 0
+    for _, event in ipairs(events) do
+        if event.seq > keys_seq and handled < 8 then
+            keys_seq = event.seq -- consumed before acting; never replayed
+            handled = handled + 1
+            key_action(event.action)
+        end
+    end
+    if newest > keys_seq then keys_seq = newest; plain_log('keys.skipped', 'more than eight pending') end
+end
+local function start_keys()
+    if keys_running then publish_reader_state(true); return end
+    local suffix = 'native-ui-graphics-preview.log'
+    if type(log_path) ~= 'string' or string.sub(log_path, -#suffix) ~= suffix or not core:is_frontend() then return end
+    local api = real_timer
+    if not api or type(api.register_singleshot) ~= 'function' or type(api.unregister) ~= 'function' then
+        plain_log('keys.setup', 'real_timer unavailable'); return
+    end
+    keys_base = string.sub(log_path, 1, #log_path - #suffix)
+    keys_running = true
+    core:add_listener(keys_name .. '_real_timer', 'RealTimeTrigger',
+        function(context) return context.string == keys_name end,
+        function()
+            if not keys_running then return end
+            local ok, err = pcall(poll_keys)
+            if ok then keys_errors = 0 else
+                keys_errors = keys_errors + 1
+                if keys_errors <= 3 then plain_log('keys.ERROR', type(err) == 'string' and err or type(err)) end
+                if keys_errors >= 20 then keys_running = false; plain_log('keys.disabled', 'repeated errors'); return end
+            end
+            pcall(function() api.register_singleshot(keys_name, 100) end)
+        end, true)
+    api.unregister(keys_name)
+    api.register_singleshot(keys_name, 100)
+    publish_reader_state(true)
+    plain_log('keys.enabled', 'companion key channel')
+end
+local function start_keys_guarded()
+    local ok, err = pcall(start_keys)
+    if not ok then keys_running = false; pcall(function() plain_log('keys.setup_error', type(err) == 'string' and err or type(err)) end) end
+end
 core:add_listener('graphics_preview_automation_init','FrontendScreenTransition',true,
-    function() if start_automation then start_automation() end end,true)
+    function() if start_automation then start_automation() end; start_keys_guarded() end,true)
 start_automation()
-speak('Warhammer accessibility ready. F2 and F3 move, F4 activates.')
+start_keys_guarded()
+speak('Warhammer accessibility ready. Arrow keys move, Enter activates.')
 

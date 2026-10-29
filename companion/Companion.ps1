@@ -4,6 +4,7 @@ param(
     [switch]$Console,
     [string]$ReplayFile,
     [switch]$NoHotkeys,
+    [switch]$MenuKeys,
     [switch]$TraceSpeech,
     [ValidateSet('Jaws','Nvda')][string]$ScreenReader = 'Jaws'
 )
@@ -188,7 +189,55 @@ try {
         [JawsPilot.Tail]::new((Join-Path $GamePath 'jaws_access.jsonl'), $true)
     )
     $states = @((New-ProtocolState), (New-ProtocolState))
+    # Standard menu keys (arrows, Tab, Home/End, Enter/Space, letters) go to the
+    # mod through keys.tsv, only while the game is focused and the mod's
+    # reader-state.tsv heartbeat is fresh and reports the frontend.
+    $script:MenuKeysObj = $null
+    $script:KeyOwner = [guid]::NewGuid().ToString('N')
+    $script:KeySeq = 0
+    $script:KeyRing = New-Object System.Collections.Generic.List[string]
+    $script:Reader = $null
+    $script:LastMenuKeyFailures = 0
+    function Write-AtomicText([string]$Path, [string]$Text) {
+        $temporary = $Path + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+        try {
+            [IO.File]::WriteAllText($temporary, $Text, (New-Object Text.UTF8Encoding $false))
+            if ([IO.File]::Exists($Path)) { [IO.File]::Replace($temporary, $Path, [NullString]::Value) }
+            else { [IO.File]::Move($temporary, $Path) }
+        } finally { if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) } }
+    }
+    function Read-ReaderState {
+        $path = Join-Path $base 'reader-state.tsv'
+        try {
+            $info = New-Object IO.FileInfo $path
+            if (-not $info.Exists -or ([DateTime]::UtcNow - $info.LastWriteTimeUtc).TotalSeconds -gt 3) { return $null }
+            $fields = ([IO.File]::ReadAllText($path)).TrimEnd("`r", "`n").Split("`t")
+            if ($fields.Count -ne 5 -or $fields[0] -ne 'WH2READER1' -or $fields[3] -ne '1') { return $null }
+            return [pscustomobject]@{ session = $fields[1]; generation = $fields[2]; screen = $fields[4] }
+        } catch { return $null }
+    }
+    function Write-MenuKeys {
+        $session = '-'; $generation = '-'
+        if ($script:Reader) { $session = $script:Reader.session; $generation = $script:Reader.generation }
+        $lines = @("WH2KEYS1`t" + $script:KeyOwner + "`t" + $session + "`t" + $generation) + $script:KeyRing
+        Write-AtomicText (Join-Path $base 'keys.tsv') (($lines -join "`n") + "`n")
+    }
+    function Send-MenuKey([string]$Action) {
+        if (-not $script:Reader) { return }
+        $script:KeySeq++
+        $script:KeyRing.Add(([string]$script:KeySeq) + "`t" + $Action)
+        while ($script:KeyRing.Count -gt 16) { $script:KeyRing.RemoveAt(0) }
+        Write-MenuKeys
+    }
     function Read-Bridge {
+        if ($script:MenuKeysObj) {
+            $script:Reader = Read-ReaderState
+            $failures = $script:MenuKeysObj.SetActive($null -ne $script:Reader)
+            if ($failures -and $failures -ne $script:LastMenuKeyFailures) {
+                Log-Error ('Menu keys: ' + $failures + ' could not be registered or released (another program may own them).')
+            }
+            $script:LastMenuKeyFailures = $failures
+        }
         if (-not $Console -and $keys) {
             $failures = $keys.UpdateFocus(-not $NoHotkeys)
             $failureKey = $failures -join ','
@@ -238,6 +287,16 @@ try {
         Add-Type -Path @((Join-Path $PSScriptRoot 'Native.cs'), (Join-Path $PSScriptRoot 'HotkeyPolicy.cs')) -ReferencedAssemblies @('System.dll','System.Windows.Forms.dll')
         [void][JawsPilot.Pointer]::SetProcessDPIAware()
     }
+    if ($MenuKeys) {
+        Add-Type -Path (Join-Path $PSScriptRoot 'MenuKeys.cs') -ReferencedAssemblies @('System.dll','System.Windows.Forms.dll')
+        $script:MenuKeysObj = [WarhammerAccessibility.MenuKeys]::new()
+        $script:MenuKeysObj.Add_Pressed({ param($sender, $eventArgs)
+            try { Send-MenuKey $eventArgs.Action } catch { Log-Error ('Menu key failed: ' + $_.Exception.Message) }
+        })
+        # Announce this companion to the mod with no events, so the first real
+        # key press is not mistaken for an old backlog.
+        Write-MenuKeys
+    }
     [System.Windows.Forms.Application]::EnableVisualStyles()
     $form = New-Object Windows.Forms.Form
     $form.Text = $(if ($NoHotkeys) { 'Warhammer II ' + $readerName + ' read-only keyboard browser ' + $buildVersion } else { 'Warhammer II ' + $readerName + ' Pilot ' + $buildVersion })
@@ -251,7 +310,7 @@ try {
     $label.Text = 'Experimental co-op accessibility pilot. Enable jaws_access in the game Mod Manager. F2 next, F3 previous, F4 twice to activate. Ctrl+F2 changes category.'
     if ($NoHotkeys) { $label.Text = 'Read-only keyboard browser: companion global hotkeys disabled. In the main menu, tap F2 for next or F3 for previous. F4 is disabled. No mouse or game command is used.' }
     if ($packageManifest.stage -eq 'frontend-activation-preview') {
-        $label.Text = 'F2 next, F3 previous. Press F4 twice within four seconds on a supported control. New Campaign opens campaign setup; Continue supports the captured Vortex selection. Other campaign choices remain read only. Use Escape to return. Enter is not bound.'
+        $label.Text = 'In the game menus: Up and Down arrows or Tab move, Home and End jump, Enter or Space activates, a letter jumps to the next item starting with it, Escape goes back. F2, F3 and F4 also work.'
     }
     $label.Width = 650; $label.Height = 60; $panel.Controls.Add($label)
     $script:StatusControl = New-Object Windows.Forms.TextBox
@@ -309,7 +368,7 @@ try {
         elseif ($Launch) { Set-Status ($readerName + ' must be connected before the game can launch.') }
     })
     try { [void]$form.ShowDialog() }
-    finally { $timer.Stop(); $timer.Dispose(); if ($keys) { $keys.Dispose() }; $form.Dispose(); Stop-Speech }
+    finally { $timer.Stop(); $timer.Dispose(); if ($keys) { $keys.Dispose() }; if ($script:MenuKeysObj) { $script:MenuKeysObj.Dispose() }; $form.Dispose(); Stop-Speech }
 } catch {
     Write-Host ('Warhammer accessibility pilot failed: ' + $_.Exception.Message)
     if (Get-Command Log-Error -ErrorAction SilentlyContinue) { Log-Error $_.Exception.Message }

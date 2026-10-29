@@ -167,3 +167,11 @@ one click through the shared single call site; everything else on Lord setup,
 including Start Campaign, answers "read only". The automation client needs
 `-ExpectedSelectedKey <lord choice key> -DoubleConfirm`. The next capture logs
 `activation.observed_result lord-match:<name>` or `lord-mismatch:<name>`.
+
+## Companion key channel (0.6.27)
+
+Production input path, separate from the lease-gated automation channel: the
+mod writes `reader-state.tsv` (`WH2READER1 session generation frontend screen`)
+every second and polls `keys.tsv` (`WH2KEYS1 owner session generation`, then
+`seq action` lines) every 100 ms. Actions: next, previous, first, last,
+activate, letter:a–z. Same handlers as F2/F3/F4. See STANDARD_KEYS_0_6_27.md.

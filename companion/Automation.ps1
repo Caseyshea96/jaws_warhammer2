@@ -109,7 +109,8 @@ try {
         }
         default {
             $reply = Send-Once $Action.ToLowerInvariant() $null
-            if ($DoubleConfirm) {
+            if ($DoubleConfirm -and $reply.result -ne 'input-sent') {
+                # input-sent on the first request: the game uses single-press activation.
                 if ($reply.result -ne 'armed' -or $reply.pending_key -ne $ExpectedSelectedKey -or $reply.pending_deadline -lt (Unix-Now)) {
                     $reply | ConvertTo-Json; exit 2
                 }
