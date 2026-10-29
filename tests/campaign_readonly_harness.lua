@@ -90,7 +90,7 @@ end
 start('campaign',valid);begin();finish()
 assert(status():find('"complete":true',1,true));assert(status():find('"count":4',1,true))
 assert(contents('native-ui-campaign-discovery.jsonl'):find('"physical_keys_verified":false',1,true))
-fire('ShortcutTriggered',{string='script_F3'});assert(contents('bridge.jsonl'):find('Item 2, text, 4 of 4.',1,true))
+fire('ShortcutTriggered',{string='script_F3'});assert(contents('bridge.jsonl'):find('Item 2, 4 of 4',1,true),contents('bridge.jsonl'))
 fire('ShortcutTriggered',{string='script_F4'});assert(dispatches==0)
 -- The exact early-scan regression: no text getters while HUD is hidden or bars visible.
 start('campaign',valid);nodes['tree.child0'].visible=false;nodes['tree.child1'].visible=true
@@ -154,5 +154,25 @@ for _,bad in ipairs({'owner','session','generation','expired','late-expiry','fra
 end
 start('campaign',valid);real_timer=nil;begin();assert(status():find('"phase":"error"',1,true))
 start('campaign',valid);begin();finish();tick(1801);assert(not pending and status():find('lease-ended',1,true),'Independent lifetime bound')
+-- 0.6.32: NVDA-style campaign items; values labelled by their tooltips;
+-- the hover tooltip layer is left out; long descriptions are not "limited".
+local make=start('campaign',valid)
+local treasury=nodes['tree.child0.child0']; treasury.id='dy_treasury'; treasury.label='6000'
+function treasury:GetTooltipText() return 'Treasury||This is the total amount of money' end
+local menu=nodes['tree.child0.child1']; menu.id='button_menu'; menu.label=''
+function menu:GetTooltipText() return 'Menu [[col:yellow]] <Esc>[[/col]]' end
+local tab=nodes['tree.child0.child2']; tab.id='tab_events'; tab.label=''
+function tab:GetTooltipText() return 'Events' end
+nodes['tree.child2'].label=string.rep('x',3000)
+make('tree.child4','Tooltip',0,'Province: Somewhere'); nodes.tree.count=5
+begin();finish()
+assert(status():find('"complete":true',1,true) and status():find('"count":4',1,true),status())
+for n=1,4 do fire('ShortcutTriggered',{string='script_F2'}) end
+local spoken=contents('bridge.jsonl')
+assert(spoken:find('Treasury, 6000, 2 of 4, This is the total amount of money',1,true),spoken)
+assert(spoken:find('Menu, button, 3 of 4',1,true) and spoken:find('Events, tab, 4 of 4',1,true),spoken)
+assert(not spoken:find('Province: Somewhere',1,true) and not spoken:find(', text,',1,true),'Hover tooltip excluded; no "text" role')
+assert(contents('native-ui-campaign-discovery.jsonl'):find('"reason":"hover-tooltip"',1,true))
+fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==0 and contents('bridge.jsonl'):find('Not supported yet.',1,true))
 io=saved_io;os.date=saved_date
 print('PASS: ' .. scenarios .. ' campaign diagnostic scenarios; HUD readiness, scoped discovery, typed failures, capture protocol, replay/generation/lease guards, limits, cancellation and zero clicks')

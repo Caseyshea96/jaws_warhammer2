@@ -439,3 +439,10 @@ accepted. Details: STANDARD_KEYS_0_6_27.md.
 Start Campaign always asks first; second press within 10 s starts. Live: real
 campaign start to the High Elves campaign map (owner skipped the intro with
 Escape). Campaign map is not read yet. Details: START_CAMPAIGN_0_6_28.md.
+
+## 0.6.32 — read-only campaign map reader (October 29)
+
+Resumed from Codex's 0.6.31 checkpoint. Live: 0.6.31 read the HUD after the
+flyover (59 items, 1 text-limit issue); 0.6.32 complete (53 items, 0 issues,
+self-test passed) with NVDA-style campaign speech. Accepted. Details:
+CAMPAIGN_READER_0_6_32.md.

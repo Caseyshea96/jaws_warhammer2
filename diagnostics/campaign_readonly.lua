@@ -23,7 +23,7 @@ end
 local initial,owner,expiry,mode=read_flag()
 if not initial then return end
 local session='campaign:' .. owner .. ':' .. tostring({})
-local version='0.6.31'
+local version='0.6.32'
 local sequence,generation,bytes,run,attempts=0,1,0,0,0
 local phase,result,last_request='initialising','ready',''
 local queue,head,visited,page,entries,index={},1,0,0,{},0
@@ -90,7 +90,7 @@ local function limit(reason,path,value)
     emit('{"kind":"limit","run":' .. run .. ',"page":' .. page .. ',"reason":' .. quoted(reason)
         .. ',"path":' .. quoted(path) .. ',"value":' .. value .. '}')
 end
-local function text(value) return type(value)=='string' and bounded(value,1000) or '' end
+local function text(value) return type(value)=='string' and bounded(value,4000) or '' end
 -- Reading IDs/visibility of root children reveals no hidden text. The game's
 -- campaign UI library places its HUD under "layout"; the last live capture
 -- showed this hidden while cinematic_bars was visible.
@@ -158,7 +158,17 @@ local function browse(step,quiet)
     if not context or context.root_address~=root_identity or context.layout_address~=layout_identity or context.count~=root_count then cancel('hud-changed');return false end
     if #entries==0 then if not quiet then speak('No readable campaign text.') end;return false end
     local item=move_cursor(step)
-    if not quiet then speak(item.name .. ', text, ' .. index .. ' of ' .. #entries .. '.') end
+    if not quiet then
+        local id=type(item.id)=='string' and item.id or ''
+        local role=(string.sub(id,1,7)=='button_' and 'button') or (string.sub(id,1,4)=='tab_' and 'tab')
+            or (string.sub(id,1,7)=='toggle_' and 'toggle button') or nil
+        local parts={item.name}
+        if role then parts[#parts+1]=role end
+        if item.value and item.value~='' then parts[#parts+1]=item.value end
+        parts[#parts+1]=index .. ' of ' .. #entries
+        if item.description and item.description~='' then parts[#parts+1]=item.description end
+        speak(table.concat(parts,', '))
+    end
     return item.key
 end
 local function verify_reader()
@@ -172,7 +182,8 @@ local function verify_reader()
     index=0
 end
 local excluded={['3d_ui_parent']='world-space',['character_map_path_icons']='world-space',
-    ['watermark_square']='visual-only',['black_fade']='visual-only',['cinematic_bars']='visual-only'}
+    ['watermark_square']='visual-only',['black_fade']='visual-only',['cinematic_bars']='visual-only',
+    ['Tooltip']='hover-tooltip'}
 local function page_read()
     local context=hud_context()
     if not context or context.root_address~=root_identity or context.layout_address~=layout_identity or context.count~=root_count then cancel('hud-changed');return end
@@ -196,7 +207,7 @@ local function page_read()
                     local ok,value,err=read(getters[method]);values[method]=value;types[method]=type(value)
                     local wanted=method=='ChildCount' and 'number' or 'string'
                     if not ok or type(value)~=wanted then issue(item.label,method,ok,value,err)
-                    elseif type(value)=='string' and #value>1000 then issue(item.label,method,ok,value,nil,'text-limit') end
+                    elseif type(value)=='string' and #value>4000 then issue(item.label,method,ok,value,nil,'text-limit') end
                 end
                 local label,tip,state=text(values.GetStateText),text(values.GetTooltipText),text(values.CurrentState)
                 local count=values.ChildCount
@@ -206,13 +217,23 @@ local function page_read()
                     .. ',"text":' .. quoted(label) .. ',"tooltip":' .. quoted(tip) .. ',"state":' .. quoted(state) .. ',"children":' .. count
                     .. ',"text_type":' .. quoted(types.GetStateText) .. ',"tooltip_type":' .. quoted(types.GetTooltipText)
                     .. ',"state_type":' .. quoted(types.CurrentState) .. ',"children_type":' .. quoted(types.ChildCount) .. '}')
-                local function entry(suffix,name)
-                    if name=='' then return end
-                    if #entries>=512 then limit('entry-budget',item.label,#entries);return end
-                    entries[#entries+1]={key='campaign:' .. item.label .. ':' .. suffix,name=name}
-                end
                 local name,tooltip=clean(label),clean(tip)
-                entry('text',name);if tooltip~=name then entry('tooltip',tooltip) end
+                -- Tooltips read "Name||Description"; a value with a tooltip is
+                -- one item: "Treasury, 6000, This is the total amount ...".
+                local tip_name,tip_description=tooltip,''
+                for position=1,#tooltip-1 do
+                    if string.byte(tooltip,position)==124 and string.byte(tooltip,position+1)==124 then
+                        tip_name=clean(string.sub(tooltip,1,position-1)); tip_description=clean(string.sub(tooltip,position+2)); break
+                    end
+                end
+                local entry_name,value,description=name,'',''
+                if name~='' and tip_name~='' and tip_name~=name then entry_name,value,description=tip_name,name,tip_description
+                elseif name=='' then entry_name,description=tip_name,tip_description end
+                if entry_name~='' then
+                    if #entries>=512 then limit('entry-budget',item.label,#entries)
+                    else entries[#entries+1]={key='campaign:' .. item.label .. ':' .. (name~='' and 'text' or 'tooltip'),
+                        name=entry_name,value=value,description=description,id=id} end
+                end
                 if #item.path>=16 and count>0 then limit('depth-budget',item.label,#item.path)
                 else
                     if count>100 then limit('child-budget',item.label,count) end
@@ -238,7 +259,7 @@ local function page_read()
         .. ',"complete":' .. tostring(finished and not limited) .. ',"limited":' .. tostring(limited) .. '}')
     if finished then
         phase=limited and 'limited' or 'ready';result='capture-complete';verify_reader()
-        speak('Campaign. ' .. #entries .. ' items.' .. (limited and ' Some screen content is unavailable.' or ''))
+        speak('Campaign map, ' .. #entries .. ' items.' .. (limited and ' Some text could not be read.' or ''))
         browse(1,false)
     end
 end
@@ -261,7 +282,7 @@ local function waiting_step()
             queue={{path={},ids={},label='tree'}};phase='scanning';result='scanning'
             emit('{"kind":"begin","version":' .. quoted(version) .. ',"session":' .. quoted(session) .. ',"run":' .. run
                 .. ',"generation":' .. generation .. ',"read_only":true,"scope":"hud-and-dialogs-excluding-world-space","page_budget":48,"node_budget":1536}')
-            speak('Campaign. Reading screen.');return
+            speak('Reading the campaign map.');return
         end
     else stable_ticks=0;stable_identity=nil end
     if reason~=last_readiness then
@@ -329,7 +350,7 @@ core:add_listener('warhammer_campaign_readonly_keys','ShortcutTriggered',functio
 end,function(c)
     if not lease_active() then return end
     local ok,err=pcall(function()
-        if c.string=='script_F4' then speak('Campaign actions are not available.')
+        if c.string=='script_F4' then speak('Not supported yet.')
         elseif finished then browse(c.string=='script_F2' and 1 or -1,false)
         elseif phase~='waiting' and phase~='scanning' then request_capture('keyboard') end
         publish_status()
