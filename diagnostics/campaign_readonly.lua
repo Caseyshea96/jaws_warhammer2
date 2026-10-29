@@ -26,7 +26,7 @@ local initial,owner,expiry,mode=read_flag()
 local diagnostic=initial~=nil
 if not diagnostic then owner,expiry,mode='player','9999-12-31T23:59:59Z','player' end
 local session='campaign:' .. owner .. ':' .. tostring({})
-local version='0.6.37'
+local version='0.6.39'
 local sequence,generation,bytes,run,attempts=0,1,0,0,0
 local phase,result,last_request='initialising','ready',''
 local queue,head,visited,page,entries,index={},1,0,0,{},0
@@ -196,17 +196,22 @@ local function move_cursor(step)
     if index==0 then index=step>0 and 1 or #entries else index=((index-1+step)%#entries)+1 end
     return entries[index]
 end
+local function role_of(id)
+    if type(id)~='string' then return nil end
+    return (id:sub(1,7)=='button_' and 'button') or (id:sub(1,4)=='tab_' and 'tab')
+        or (id:sub(1,7)=='toggle_' and 'toggle button') or (id=='3D_advisor_portrait' and 'button')
+        or ((id=='dy_title' or id=='tx_title') and 'heading') or nil
+end
+local pending_confirm -- End Turn / Quit / Exit / Load ask first
 local function browse(step,quiet)
+    pending_confirm=nil -- moving cancels a pending confirmation
     if not lease_active() or not finished then return false end
     local context=hud_context()
     if not context or context.root_address~=root_identity or context.layout_address~=layout_identity or context.count~=root_count then cancel('hud-changed');return false end
     if #entries==0 then if not quiet then speak('No readable campaign text.') end;return false end
     local item=move_cursor(step)
     if not quiet then
-        local id=type(item.id)=='string' and item.id or ''
-        local role=(string.sub(id,1,7)=='button_' and 'button') or (string.sub(id,1,4)=='tab_' and 'tab')
-            or (string.sub(id,1,7)=='toggle_' and 'toggle button') or (id=='3D_advisor_portrait' and 'button')
-            or ((id=='dy_title' or id=='tx_title') and 'heading') or nil
+        local role=role_of(item.id)
         local parts={item.name}
         if role then parts[#parts+1]=role end
         if item.value and item.value~='' then parts[#parts+1]=item.value end
@@ -302,12 +307,12 @@ local function page_read()
                 if entry_name~='' then
                     if #entries>=512 then limit('entry-budget',item.label,#entries)
                     else entries[#entries+1]={key='campaign:' .. item.label .. ':' .. (name~='' and 'text' or 'tooltip'),
-                        name=entry_name,value=value,description=description,id=id} end
+                        name=entry_name,value=value,description=description,id=id,path=item.path,ids=item.ids} end
                 end
                 if #item.path>=16 and count>0 then limit('depth-budget',item.label,#item.path)
                 else
-                    if count>100 then limit('child-budget',item.label,count) end
-                    for child_index=0,math.min(count,100)-1 do
+                    if count>256 then limit('child-budget',item.label,count) end
+                    for child_index=0,math.min(count,256)-1 do
                         if #queue>=2048 then limit('queue-budget',item.label,#queue);break end
                         local path,ids={},{}
                         for depth,value in ipairs(item.path) do path[depth]=value;ids[depth]=item.ids[depth] end
@@ -416,6 +421,41 @@ local function publish_reader_state(force)
     local f=io.open(base .. 'reader-state.tsv','w'); if not f then return end
     f:write(line); f:close(); state_line=line
 end
+local function needs_confirmation(id)
+    return id=='button_end_turn' or id:match('quit')~=nil or id:match('exit')~=nil or id:match('load')~=nil
+end
+local function activate_current()
+    if not finished or #entries==0 or index==0 then speak('No item selected.'); return end
+    local item=entries[index]
+    local id=type(item.id)=='string' and item.id or ''
+    local role=role_of(id)
+    if role~='button' and role~='tab' then speak('Not supported yet.'); return end
+    local context=hud_context()
+    if not context or context.root_address~=root_identity or context.layout_address~=layout_identity or context.count~=root_count then
+        emit('{"kind":"activation-blocked","reason":"hud-changed"}'); cancel('hud-changed'); speak('The screen changed. Reading it again.'); return
+    end
+    local node,reason=resolve(context.root,item.path or {},item.ids or {})
+    local leaf_ok,leaf=false,nil
+    if node then leaf_ok,leaf=read(function() local v=node:Id(); return v end) end
+    if not node or not leaf_ok or leaf~=id then
+        emit('{"kind":"activation-blocked","reason":' .. quoted(node and 'identity' or tostring(reason)) .. '}')
+        cancel('target-changed'); speak('The screen changed. Reading it again.'); return
+    end
+    local _,interactive=read(function() local v=node:IsInteractive(); return v end)
+    local _,state=read(function() local v=node:CurrentState(); return v end)
+    if interactive~=true or state=='inactive' or state=='locked' or state=='disabled' then
+        emit('{"kind":"activation-blocked","reason":' .. quoted('state:' .. tostring(state) .. ':' .. tostring(interactive)) .. '}')
+        speak(item.name .. ' is unavailable.'); return
+    end
+    if needs_confirmation(id) and not (pending_confirm and pending_confirm.key==item.key and ticks<=pending_confirm.until_tick) then
+        pending_confirm={key=item.key,until_tick=ticks+10}
+        speak(item.name .. '? Press Enter again to confirm.'); return
+    end
+    pending_confirm=nil
+    emit('{"kind":"activation-dispatch","id":' .. quoted(id) .. ',"name":' .. quoted(item.name) .. '}')
+    local clicked=pcall(function() node:SimulateLClick() end) -- the only native click in this module
+    speak(clicked and (item.name .. ' activated.') or ('Could not activate ' .. item.name .. '.'))
+end
 local function speak_current()
     if not finished then
         if phase~='waiting' and phase~='scanning' then request_capture('keyboard') end
@@ -428,7 +468,7 @@ local function key_action(action)
         if finished then browse(action=='next' and 1 or -1,false) else speak_current() end
     elseif action=='first' or action=='last' then
         if finished then index=0; browse(action=='first' and 1 or -1,false) else speak_current() end
-    elseif action=='activate' then speak('Not supported yet.')
+    elseif action=='activate' then activate_current()
     elseif #action==8 and action:sub(1,7)=='letter:' then
         if not finished or #entries==0 then speak_current(); return end
         local letter=action:sub(8,8)
@@ -471,7 +511,10 @@ local function tick()
             ticks=ticks+1
             if not lease_active() or (diagnostic and ticks>1800) then stop('lease-ended');publish_status();return end
             read_request()
-            if phase=='waiting' then waiting_step() elseif phase=='scanning' then page_read() end
+            if phase=='waiting' then waiting_step() elseif phase=='scanning' then
+                -- Players get a re-read in about three seconds; the developer mode keeps one page a second.
+                for _=1,(diagnostic and 1 or 3) do if phase=='scanning' then page_read() end end
+            end
             -- Re-read automatically when the visible panels change and settle.
             if phase=='ready' or phase=='limited' or phase=='cancelled' then
                 local context=phase~='cancelled' and hud_context() or nil
@@ -532,7 +575,7 @@ end,function(c)
             if polling then pcall(function() real_timer.unregister(timer_name); real_timer.register_singleshot(timer_name,reader_mode and 100 or 1000) end) end
         elseif c.string=='script_shift_F3' then
             if phase~='waiting' and phase~='scanning' then request_capture('keyboard-refresh') end
-        elseif c.string=='script_F4' then speak('Not supported yet.')
+        elseif c.string=='script_F4' then activate_current()
         elseif finished then browse(c.string=='script_F2' and 1 or -1,false)
         elseif phase~='waiting' and phase~='scanning' then request_capture('keyboard') end
         publish_status()

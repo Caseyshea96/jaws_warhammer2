@@ -1,6 +1,6 @@
 local saved_io,saved_date=io,os.date
 local scenarios=0
-local nodes,files,listeners,pending,ui_ready,destroyed,dispatches,clock
+local nodes,files,listeners,pending,ui_ready,destroyed,dispatches,clock,clicked
 local prefix=(os.getenv('LOCALAPPDATA') or '') .. '/JawsWarhammer2/'
 local owner=string.rep('a',32)
 local valid='WH2CAM1\t' .. owner .. '\t2026-10-29T18:30:00Z\tverify\n'
@@ -23,9 +23,10 @@ local function start(context,flag,count)
         function item:GetStateText() return value(self,'GetStateText',self.label) end
         function item:GetTooltipText() return value(self,'GetTooltipText','') end
         function item:CurrentState() return value(self,'CurrentState','active') end
+        function item:IsInteractive() return value(self,'IsInteractive',true) end
         function item:Address() return self.address end
         function item:Find(index) return nodes[self.path .. '.child' .. index] end
-        function item:SimulateLClick() dispatches=dispatches+1;error('Campaign clicks forbidden') end
+        function item:SimulateLClick() dispatches=dispatches+1;clicked=self.path end
         nodes[path]=item;return item
     end
     node('tree','root',4)
@@ -131,7 +132,7 @@ start('campaign',valid,80);begin();tick(3);nodes['tree.child0'].address=newproxy
 assert(status():find('"phase":"cancelled"',1,true))
 start('campaign',valid);nodes['tree.child0.child1'].visible=false;begin();finish()
 assert(not contents('native-ui-campaign-discovery.jsonl'):find('Item 1',1,true))
-start('campaign',valid,101);begin();finish();assert(status():find('"phase":"limited"',1,true))
+start('campaign',valid,257);begin();finish();assert(status():find('"phase":"limited"',1,true))
 start('campaign',valid,80);begin();tick(3);destroyed();tick(1)
 assert(status():find('"phase":"cancelled"',1,true));assert(status():find('"count":0',1,true))
 start('campaign',valid);ui_ready=false;begin();tick(4);assert(contents('bridge.jsonl')=='')
@@ -175,7 +176,9 @@ assert(spoken:find('Treasury, 6000, 2 of 4, This is the total amount of money',1
 assert(spoken:find('Menu, button, 3 of 4',1,true) and spoken:find('Events, tab, 4 of 4',1,true),spoken)
 assert(not spoken:find('Province: Somewhere',1,true) and not spoken:find(', text,',1,true),'Hover tooltip excluded; no "text" role')
 assert(contents('native-ui-campaign-discovery.jsonl'):find('"reason":"hover-tooltip"',1,true))
-fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==0 and contents('bridge.jsonl'):find('Not supported yet.',1,true))
+fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==0 and contents('bridge.jsonl'):find('Not supported yet.',1,true),'F4 on text does nothing')
+fire('ShortcutTriggered',{string='script_F3'}); fire('ShortcutTriggered',{string='script_F4'})
+assert(dispatches==1 and clicked=='tree.child0.child2' and contents('bridge.jsonl'):find('Events activated.',1,true),'Enter/F4 activates the Events tab')
 -- 0.6.33: income without brackets, End Turn named, bare counts joined to
 -- the item before them, panel titles as headings.
 start('campaign',valid,7)
@@ -259,5 +262,36 @@ for n=1,20 do swapped.visible=(n%2==0); tick(1) end
 swapped.visible=true; tick(1)
 assert(select(2,contents('bridge.jsonl'):gsub('Screen updated%.',''))<=2,'Blinking does not cause repeated re-reads')
 assert(dispatches==0)
+-- 0.6.38: HUD buttons and tabs activate after re-verification; End Turn asks;
+-- text, toggles, unavailable and changed targets never click.
+start('campaign',nil,5)
+local function set(index,id,label,tip,state,interactive)
+    local item=nodes['tree.child0.child' .. index]; item.id=id; item.label=label or ''
+    function item:GetTooltipText() return tip or '' end
+    if state then function item:CurrentState() return state end end
+    if interactive==false then function item:IsInteractive() return false end else function item:IsInteractive() return true end end
+end
+set(0,'button_diplomacy','','Diplomacy||Negotiate'); set(1,'button_end_turn','','End turn warning')
+set(2,'button_rituals','','Rites||Perform rites','inactive'); set(3,'toggle_interrupt_button','','Interventions'); set(4,'dy_title','Missions')
+begin(); for n=1,12 do tick(1) end
+local function press(times) for n=1,times do fire('ShortcutTriggered',{string='script_F2'}) end end
+local function said() return contents('bridge.jsonl'):match('"text":"([^"]*)"}\n$') end
+-- Order: Advice (root text), Diplomacy, End turn, Rites, Interventions, Missions.
+fire('ShortcutTriggered',{string='script_F4'}); assert(said()=='Not supported yet.' and dispatches==0,'Text is not actionable')
+press(1); fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==1 and clicked=='tree.child0.child0' and said()=='Diplomacy activated.',said())
+press(1); fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==1 and said()=='End turn? Press Enter again to confirm.',said())
+fire('ShortcutTriggered',{string='script_F3'}); fire('ShortcutTriggered',{string='script_F2'})
+fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==1,'Moving away cancelled the confirmation')
+fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==2 and clicked=='tree.child0.child1' and said()=='End turn activated.',said())
+press(1); fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==2 and said()=='Rites is unavailable.',said())
+press(1); fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==2 and said()=='Not supported yet.','Toggles stay read only')
+press(1); fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==2,'Headings are not actionable')
+-- A replaced target is re-read, never clicked.
+start('campaign',nil,2)
+set(0,'button_diplomacy','','Diplomacy')
+begin(); for n=1,12 do tick(1) end
+press(1); nodes['tree.child0.child0'].id='button_other'
+fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==0 and said()=='The screen changed. Reading it again.',said())
+assert(contents('native-ui-campaign-discovery.jsonl'):find('"kind":"activation-blocked","reason":"identity"',1,true))
 io=saved_io;os.date=saved_date
 print('PASS: ' .. scenarios .. ' campaign diagnostic scenarios; HUD readiness, scoped discovery, typed failures, capture protocol, replay/generation/lease guards, limits, cancellation and zero clicks')

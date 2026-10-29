@@ -33,7 +33,9 @@ WHAT WORKS
   again to start."); moving away cancels.
 - Campaign map: the HUD is read when the map appears. Shift+F2 switches HUD
   reading on (arrows, Home/End and letters read items) and off (arrows move
-  the camera). Shift+F3 reads the screen again. Nothing can be activated yet.
+  the camera). Shift+F3 reads the screen again. Enter presses HUD buttons and
+  tabs (End Turn asks first); the screen is re-read and announced when it
+  changes. Map and army orders are not supported.
 - Other buttons say "Not supported yet."
 
 OPTIONS
