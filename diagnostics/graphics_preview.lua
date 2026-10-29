@@ -342,7 +342,7 @@ for _, base in ipairs(bases) do
     local path = base .. 'native-ui-graphics-preview.log'
     local f = io.open(path, 'w')
     if f then
-        local header = 'WH2 native UI diagnostic 0.6.27-nvda-automation-preview\n'
+        local header = 'WH2 native UI diagnostic 0.6.28-nvda-automation-preview\n'
         f:write(header); f:close(); log_bytes = #header + 1
         log_path = path; bridge_path = base .. (base == '' and 'jaws_access.jsonl' or 'bridge.jsonl')
         local bridge = io.open(bridge_path, 'w'); if bridge then bridge:close() end
@@ -1440,6 +1440,13 @@ local function lord_page(announce)
                     local entry_item={key=key,name=label,
                         state=(state=='selected' or state=='inactive') and state or '',read_only=true,id=id,raw_state=state,parent_id=parent_id}
                     if id=='checkbox_start_prelude' then entry_item.description=label; d.checkbox_entry=entry_item end
+                    if parent_id=='button_start_campaign' and suffix=='text' then
+                        local ids=item.ids or {}
+                        local path,ancestors={},{}
+                        for part=1,#item.path-1 do path[part]=item.path[part] end
+                        for part=1,#ids-1 do ancestors[part]=ids[part] end
+                        entry_item.start_campaign,entry_item.choice_path,entry_item.choice_ids,entry_item.read_only=true,path,ancestors,false
+                    end
                     -- Remember where the few named fields live so a later
                     -- browse can notice a manual lord/difficulty change.
                     local field=lord_names[key]
@@ -1571,9 +1578,22 @@ local function lord_resolve_checked(root,path,ids,leaf_id)
 end
 -- Double-confirmed lord selection. Only lord-choice entries from a complete,
 -- still-current capture; every other Lord setup entry stays read only.
+-- "Start the campaign as Tyrion, High Elves, Eataine?" from the captured fields.
+local function start_prompt()
+    local values={}
+    for _,other in ipairs(controls) do
+        local field=lord_names[other.key]
+        if field and other.watch_text then values[field.label]=other.watch_text end
+    end
+    local parts={}
+    for _,label in ipairs({'Selected lord','Race','Faction'}) do if values[label] then parts[#parts+1]=values[label] end end
+    local who=#parts>0 and (' as ' .. table.concat(parts,', ')) or ''
+    return 'Start the campaign' .. who .. '? Press Enter again to start.'
+end
 local function lord_activate()
     local item,d=controls[control_index],lord_discovery
-    if item.raw_state=='selected' then cancel(); speak(item.id .. ' is already selected.'); return end
+    local starting=item.start_campaign==true
+    if not starting and item.raw_state=='selected' then cancel(); speak(item.id .. ' is already selected.'); return end
     if not d or not d.done or d.limited then
         cancel(); speak(d and d.done and 'This screen could not be read completely, so choosing is unavailable.'
             or 'Still reading this screen. Press F2, then try again.'); return
@@ -1584,29 +1604,37 @@ local function lord_activate()
     end
     local changed = lord_changed_field(context)
     if changed then log('activation.lord_blocked', 'stale:' .. changed); invalidate(); speak('The screen changed. Press F2 and try again.'); return end
-    local node,reason=lord_resolve_checked(context.root,item.choice_path,item.choice_ids,item.id)
+    local leaf=starting and 'button_start_campaign' or item.id
+    local node,reason=lord_resolve_checked(context.root,item.choice_path,item.choice_ids,leaf)
     if not node then invalidate(); log('activation.lord_unverified', reason); speak('The screen changed. Press F2 and try again.'); return end
     local interactive_ok,interactive=lord_read(function() local v=node:IsInteractive(); return v end)
     local state_ok,state=lord_read(function() local v=node:CurrentState(); return v end)
     if not interactive_ok or interactive~=true or not state_ok or (state~='active' and state~='hover') then
         log('activation.lord_blocked', 'state:' .. tostring(state)); invalidate(); speak('The screen changed. Press F2 and try again.'); return
     end
-    if confirm_activations then
+    -- Starting a campaign always asks first, like a confirmation dialog:
+    -- press again within ten seconds to start; moving away cancels.
+    if starting or confirm_activations then
         local now=clock_value()
         if pending and (now<pending.armed_at or now>pending.deadline) then
-            cancel(); speak('Confirmation timed out. Press again.'); return
+            cancel(); speak('Confirmation timed out. Press Enter again.'); return
         end
         if not pending then
-            pending={target=item.key,armed_at=now,deadline=now+4,fingerprint=item.id,generation=generation,origin=activation_origin}
+            pending={target=item.key,armed_at=now,deadline=now+(starting and 10 or 4),fingerprint=leaf,generation=generation,origin=activation_origin}
             activation_outcome='armed'
             log('activation.armed',now)
-            speak('Select ' .. item.id .. '. Press again to confirm.'); return
+            speak(starting and start_prompt() or ('Select ' .. item.id .. '. Press again to confirm.')); return
         end
-        if pending.target~=item.key or pending.generation~=generation or pending.fingerprint~=item.id then
+        if pending.target~=item.key or pending.generation~=generation or pending.fingerprint~=leaf then
             invalidate(); speak('Cancelled: the selection changed.'); return
         end
     end
     if log_failed then invalidate(); speak('Accessibility log unavailable. Restart the game.'); return end
+    if starting then
+        send_click(node,'Start Campaign')
+        speak('Starting the campaign. The campaign map cannot be read yet.')
+        return
+    end
     lord_awaiting=item.id
     send_click(node,'Lord choice: ' .. item.id)
     speak(item.id .. ' chosen.')
@@ -1674,7 +1702,7 @@ local function request_activation(source)
     local lord_mode=lord_discovery or screen_kind=='lord_discovery'
     if lord_mode then
         local item=controls[control_index]
-        if not (item and item.lord_choice) then
+        if not (item and (item.lord_choice or item.start_campaign)) then
             cancel()
             local _, role = describe(item or {})
             if item and role and role ~= 'heading' then speak('Not supported yet.') end
@@ -1792,7 +1820,7 @@ local function publish_status()
     if #label > 800 then label = label:sub(1,800):gsub('[\192-\255][\128-\191]*$','') end
     local deadline='0'
     if pending then deadline=decimal_add(unix_value(),math.max(0,pending.deadline-clock_value())) end
-    local values = {'WH2STATUS1','0.6.27-nvda-automation-preview',session,tostring(generation),
+    local values = {'WH2STATUS1','0.6.28-nvda-automation-preview',session,tostring(generation),
         tostring(interaction_revision),tostring(auto_seq),auto_result,screen_kind,
         item and item.key or '-',label,tostring(#controls),pending and pending.target or '-',
         deadline,core:is_ui_created() and '1' or '0',

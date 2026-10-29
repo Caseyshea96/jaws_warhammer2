@@ -377,3 +377,9 @@ while the game is focused on a menu (mod heartbeat), and sends them to the mod
 through keys.tsv; activation is one press. Live: full menu path to choosing
 lords by keyboard. Shift+Tab left to Steam's overlay. 0.6.27 installed and
 accepted. Details: STANDARD_KEYS_0_6_27.md.
+
+## 0.6.28 — confirmed Start Campaign (October 29)
+
+Start Campaign always asks first; second press within 10 s starts. Live: real
+campaign start to the High Elves campaign map (owner skipped the intro with
+Escape). Campaign map is not read yet. Details: START_CAMPAIGN_0_6_28.md.

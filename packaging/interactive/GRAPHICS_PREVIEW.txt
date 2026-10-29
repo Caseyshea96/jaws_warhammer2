@@ -29,7 +29,9 @@ WHAT WORKS
   ("Teclis is now selected."). The screen re-reads itself when the lord or a
   difficulty changes.
 - Graphics and Advanced graphics are read; their settings cannot be changed.
-- Other buttons say "Not supported yet." Start Campaign is not enabled.
+- Start Campaign asks first ("Start the campaign as Tyrion, ...? Press Enter
+  again to start."); moving away cancels. The campaign map is not read yet.
+- Other buttons say "Not supported yet."
 
 OPTIONS
 - confirm-activations.flag in %LOCALAPPDATA%\JawsWarhammer2 makes every

@@ -1190,11 +1190,12 @@ for n=1,lord_total do status=auto_request('next'); if status[10]=='Lord choice: 
 assert(choice_key=='lord:' .. portrait .. ':choice')
 status=auto_request('activate'); assert(status[7]=='armed' and status[12]==choice_key); no_dispatch('Automation first confirm')
 status=auto_request('activate'); assert(status[7]=='input-sent' and #dispatches==1 and dispatches[1]==portrait)
--- Start Campaign stays blocked.
+-- 0.6.28: Start Campaign always needs a second, separately accepted request.
 start(nil,lord_live,true); status=finish_lord_discovery()
 for n=1,lord_total do status=auto_request('next'); if status[10]=='Start Campaign' then break end end
 assert(status[10]=='Start Campaign')
-status=auto_request('activate'); assert(status[7]=='blocked'); no_dispatch('Start Campaign remains blocked')
+status=auto_request('activate'); assert(status[7]=='armed'); no_dispatch('First request only asks')
+status=auto_request('activate'); assert(status[7]=='input-sent' and #dispatches==1 and dispatches[1]=='tree.child2.child1.child0','Second request starts')
 -- 0.6.24: NVDA-style speech. Exact announcements pin the format.
 local function spoken() return (last():match('"text":"(.-)"}$') or ''):gsub('\\"','"') end
 local function no_engine_words(text)
@@ -1228,7 +1229,9 @@ assert(heard_exact('^Tyrion, radio button, checked, %d+ of 49$') and heard_exact
 assert(not heard_exact('^Campaign, %d+ of') and not heard_exact('^Battle, %d+ of') and not heard_exact('^Enable campaign introduction, %d+ of'),'No repeated labels')
 -- F4 on a button the mod does not support says so; F4 on text stays silent.
 assert(browse_to('Start Campaign, button'))
-key('script_F4'); assert(spoken()=='Not supported yet.'); no_dispatch('Start Campaign blocked')
+key('script_F4'); assert(spoken()=='Start the campaign as Tyrion, High Elves, Eataine? Press Enter again to start.',spoken()); no_dispatch('Start Campaign asks first')
+key('script_F3'); assert(browse_to('Start Campaign, button'))
+key('script_F4'); assert(spoken()=='Start the campaign as Tyrion, High Elves, Eataine? Press Enter again to start.','Moving away cancelled the first press'); no_dispatch('Cancelled start')
 assert(browse_to('Selected lord: Tyrion'))
 key('script_F4'); assert(spoken():find('Selected lord: Tyrion',1,true)==1,'F4 on text is silent'); no_dispatch('Text is not actionable')
 -- Many automatic refreshes in one session never exhaust the discovery log.
@@ -1268,7 +1271,24 @@ for n=1,lord_total do status=auto_request('next'); if status[10]=='Lord choice: 
 status=auto_request('activate'); assert(status[7]=='input-sent' and #dispatches==1,'One automation request activates')
 start(nil,lord_live,false)
 assert(browse_to('Start Campaign, button'))
-key('script_F4'); assert(spoken()=='Not supported yet.'); no_dispatch('Start Campaign stays blocked with single press')
+key('script_F4'); assert(spoken()=='Start the campaign as Tyrion, High Elves, Eataine? Press Enter again to start.',spoken()); no_dispatch('Start Campaign asks even with single press')
+key('script_F4'); assert(#dispatches==1 and dispatches[1]=='tree.child2.child1.child0','Second press starts the campaign')
+assert(spoken()=='Starting the campaign. The campaign map cannot be read yet.',spoken())
+assert(contents('native-ui-graphics-preview.log'):find('activation.dispatch\tstring\tStart Campaign',1,true))
+-- Timeout and a changed lord stop the start.
+start(nil,lord_live,false)
+assert(browse_to('Start Campaign, button'))
+key('script_F4'); now=now+11
+key('script_F4'); assert(spoken()=='Confirmation timed out. Press Enter again.'); no_dispatch('Timed-out start')
+key('script_F4'); assert(spoken()=='Start the campaign as Tyrion, High Elves, Eataine? Press Enter again to start.')
+nodes['tree.child2.child0.child2.child0.child4'].data.GetStateText='Teclis'
+key('script_F4'); assert(says('The screen changed. Press F2 and try again.')); no_dispatch('Changed lord stops the start')
+nodes['tree.child2.child0.child2.child0.child4'].data.GetStateText='Tyrion'
+start(nil,lord_live,false)
+assert(browse_to('Start Campaign, button'))
+nodes['tree.child2.child1.child0'].data.CurrentState='inactive'
+key('script_F4'); assert(says('The screen changed. Press F2 and try again.')); no_dispatch('Unavailable Start Campaign button')
+assert(contents('native-ui-graphics-preview.log'):find('activation.lord_blocked\tstring\tstate:inactive',1,true))
 -- Companion keys: same handlers, bound to session and UI generation.
 local function reader_state()
     local text=contents('reader-state.tsv')

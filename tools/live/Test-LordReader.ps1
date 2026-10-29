@@ -1,7 +1,7 @@
 # On Select Lord: traverse every captured entry with Next (which pages
 # discovery itself), check labels against the expected catalog, test wrap in
 # both directions, an explicit Discover refresh, and that F4 on captured
-# Start Campaign text is blocked with no extra native click.
+# Start Campaign asks first and moving away cancels, with no extra native click.
 param(
     [Parameter(Mandatory=$true)][string]$Version,
     [Parameter(Mandatory=$true)][string]$Evidence,
@@ -83,8 +83,10 @@ $state = Next-State 'Next'; $state = Next-State 'Next'
 if ($state.label -ne 'Start Campaign') { throw "Expected captured Start Campaign text, got '$($state.label)'." }
 $log = Join-Path $base 'native-ui-graphics-preview.log'
 $clicksBefore = @(Get-Content $log | Where-Object { $_ -like '*activation.dispatch*' }).Count
-$code, $blocked = Invoke-Client 'Activate' $state.selected_key
-if ($code -ne 2 -or $blocked.result -ne 'blocked') { throw 'Start Campaign was not blocked.' }
+# One press only asks ("Start the campaign as ...?"); moving away cancels.
+$code, $asked = Invoke-Client 'Activate' $state.selected_key
+if ($code -or $asked.result -ne 'armed') { throw "Start Campaign did not ask first (result $($asked.result))." }
+$state = Next-State 'Next'
 $clicksAfter = @(Get-Content $log | Where-Object { $_ -like '*activation.dispatch*' }).Count
 if ($clicksBefore -ne 2 -or $clicksAfter -ne $clicksBefore) { throw "Unexpected native click count ($clicksBefore before, $clicksAfter after)." }
-'PASS: Start Campaign blocked; exactly two native clicks in the session.'
+'PASS: Start Campaign asked first and moving away cancelled it; exactly two native clicks in the session.'
