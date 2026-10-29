@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory=$true)][string]$Evidence,   # folder under work/
     [int]$LeaseSeconds = 1800,
     [switch]$StringFindProbe,                         # opt-in 0.6.18 probe
-    [switch]$Direct   # launch Warhammer2.exe with TWMM's mod list (no PLAY click needed)
+    [switch]$Direct,  # launch Warhammer2.exe with TWMM's mod list (no PLAY click needed)
+    [switch]$WithIntro  # with -Direct: play the startup movies (default skips them via work/skip-intro)
 )
 $ErrorActionPreference = 'Stop'
 $base = Join-Path $env:LOCALAPPDATA 'JawsWarhammer2'
@@ -35,6 +36,22 @@ if ($Direct) {
     $enabled = @(Get-Content -LiteralPath $mods | Where-Object { $_ -like 'mod *' })
     if ($enabled.Count -ne 1 -or $enabled[0] -ne 'mod "jaws_access.pack";') { throw "TWMM mod list is not exactly jaws_access.pack: $enabled" }
     $game = 'C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER II'
+    if (-not $WithIntro) {
+        # A test-only mod list beside the skip pack; TWMM's own list is untouched.
+        $skipPack = Join-Path $PSScriptRoot '..\..\work\skip-intro\jaws_skip_intro.pack'
+        if (-not (Test-Path -LiteralPath $skipPack)) {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Build-SkipIntro.ps1') | Out-Null
+            if ($LASTEXITCODE) { throw 'Skip-intro pack build failed.' }
+        }
+        $skipDir = (Resolve-Path (Join-Path $PSScriptRoot '..\..\work\skip-intro')).Path
+        $mods = Join-Path $skipDir 'test_mods.txt'
+        $lines = @(
+            ('add_working_directory "' + ($game -replace '\\','/') + '/data";'),
+            ('add_working_directory "' + ($skipDir -replace '\\','/') + '";'),
+            'mod "jaws_skip_intro.pack";',
+            'mod "jaws_access.pack";')
+        [IO.File]::WriteAllText($mods, ($lines -join "`n") + "`n", (New-Object Text.UTF8Encoding $false))
+    }
     Start-Process -FilePath (Join-Path $game 'Warhammer2.exe') -WorkingDirectory $game -ArgumentList ('"' + $mods + '"'),'; -dx11'
     'Direct launch requested. Run Wait-Game.ps1.'
 } else {

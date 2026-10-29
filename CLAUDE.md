@@ -68,6 +68,13 @@ PID, waits for endpoint) → `Capture-Screen` (confirm main menu) → `Reach-Lor
 → `Test-Speech` → `Stop-Session`
 (revoke lease, copy evidence, close only owned processes).
 `Start-Session -StringFindProbe` runs the string.find probe (separate launch).
+`Start-Session -Direct` skips the three startup movies by default: it writes
+`work/skip-intro/test_mods.txt` that also loads `jaws_skip_intro.pack` (empty
+`movies/startup_movie_01-03.ca_vp8`, built by `Build-SkipIntro.ps1`). The game
+folder and TWMM's profile are untouched; `-WithIntro` plays them. Without the
+skip the endpoint reports ready while the movies are still playing (menu ~8 s
+later), so always confirm the main menu on screen. `Watch-Startup.ps1` records
+startup screenshots.
 `Click-Screen -X -Y [-MoveOnly]` stands in for a user's mouse (physical pixels =
 Capture-Screen pixels x2). Never click Start Campaign or the intro-content
 notice's confirm button, which overlaps it.

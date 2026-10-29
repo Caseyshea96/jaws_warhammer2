@@ -359,3 +359,13 @@ name, role, value, states, position; screen names on arrival; short messages.
 Lord setup is read in one go (final totals). Fixed: long watched text causing
 endless re-reads; hovered portrait dropped/unselectable. 0.6.25 installed and
 accepted. Details: SPEECH_CONVENTIONS_0_6_25.md.
+
+## Startup movies skipped for test launches (October 29)
+
+Injected Escape does not reach the game, so test launches now load a test-only
+pack with empty `movies/startup_movie_01-03.ca_vp8` through their own mod list
+(`tools/live/Build-SkipIntro.ps1`, `Start-Session -Direct`). Owner confirmed
+visually that the intro was skipped. Comparison screenshots: normal launch
+black at 23 s, ready at 34 s, menu at ~42 s (`work/startup-normal`); skip
+launch menu on screen at ready, 28 s (`work/live-0.6.25-skip-intro`). Not
+shipped to players; game folder and TWMM profile unchanged.
