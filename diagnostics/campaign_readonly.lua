@@ -26,7 +26,7 @@ local initial,owner,expiry,mode=read_flag()
 local diagnostic=initial~=nil
 if not diagnostic then owner,expiry,mode='player','9999-12-31T23:59:59Z','player' end
 local session='campaign:' .. owner .. ':' .. tostring({})
-local version='0.6.43'
+local version='0.6.45'
 local sequence,generation,bytes,run,attempts=0,1,0,0,0
 local phase,result,last_request='initialising','ready',''
 local queue,head,visited,page,entries,index={},1,0,0,{},0
@@ -34,6 +34,10 @@ local limited,errors,finished=false,0,false
 local root_identity,layout_identity,stable_identity,root_count
 local waiting_ticks,stable_ticks,ticks=0,0,0
 local timer_name='warhammer_campaign_readonly_tick'
+-- The game sometimes drops a single-shot timer event (live: the reader went
+-- silent mid-scan, no error). A second timer re-arms it when ticks stop.
+local watchdog_name='warhammer_campaign_readonly_watchdog'
+local tick_count,watchdog_seen=0,-1
 local polling=false
 local seen_requests={}
 local request_count=0
@@ -251,11 +255,39 @@ local function contribute(entry,id,name,tip_name,state,parent)
     elseif id=='dy_num_points_required' and name~='' then
         add_state(entry,'Population surplus cost ' .. name .. (state=='red' and ', not enough' or ''))
     elseif id=='button_expand_slot' and state=='locked' then add_state(entry,'locked')
+    elseif id=='turns_center' and name~='' then
+        add_state(entry,'under construction, ' .. name .. (name=='1' and ' turn left' or ' turns left'))
     elseif parent=='units_list' and tip_name~='' then
         if #entry.units<8 then entry.units[#entry.units+1]=tip_name end
     elseif tip_name~='' and tip_name~='Left-click to zoom to province' then
         add_state(entry,(tip_name:gsub('^%((.*)%)$','%1')))
     end
+end
+-- Reading order: each settlement's buildings right after its name; the
+-- minimap's settlement icons after everything else.
+local function arrange_entries()
+    local buildings,minimap,ordered={}, {}, {}
+    for _,entry in ipairs(entries) do
+        if entry.settlement then
+            buildings[entry.settlement]=buildings[entry.settlement] or {}
+            local list=buildings[entry.settlement]; list[#list+1]=entry
+        end
+    end
+    local placed={}
+    for _,entry in ipairs(entries) do
+        if entry.idpath and ('/' .. entry.idpath):match('/radar/') then minimap[#minimap+1]=entry
+        elseif not (entry.settlement and placed[entry.settlement]) then
+            if not entry.settlement then ordered[#ordered+1]=entry end
+            local key=entry.settlement_heading or entry.settlement
+            if key and buildings[key] and not placed[key] then
+                if entry.settlement then ordered[#ordered+1]=entry end -- no heading: keep them where they were
+                placed[key]=true
+                for _,building in ipairs(buildings[key]) do if building~=entry then ordered[#ordered+1]=building end end
+            end
+        end
+    end
+    for _,entry in ipairs(minimap) do ordered[#ordered+1]=entry end
+    if #ordered==#entries then entries=ordered end
 end
 local function strip_levels(label,levels)
     for _=1,levels do label=label:gsub('%.child%d+$','') end
@@ -378,7 +410,9 @@ local function page_read()
                     else
                         entry.role='button'; entry.name=building_label(id)
                         add_state(entry,building_states[state] or '')
-                        if parent and parent:sub(1,14)=='building_slot_' then entry.value=settlement_names[strip_levels(item.label,3)] or '' end
+                        if parent and parent:sub(1,14)=='building_slot_' then
+                            entry.settlement=strip_levels(item.label,3); entry.value=settlement_names[entry.settlement] or ''
+                        end
                         -- Choosing an available upgrade in the construction popup starts building it.
                         if parent~=nil and item.ids[depth-2]=='slot_parent' and state=='normal' then entry.confirm='Build ' .. entry.name end
                     end
@@ -411,7 +445,8 @@ local function page_read()
                     if #entries>=512 then limit('entry-budget',item.label,#entries)
                     else entries[#entries+1]={key='campaign:' .. item.label .. ':' .. (name~='' and 'text' or 'tooltip'),
                         name=entry_name,value=value,description=description,id=id,path=item.path,ids=item.ids,
-                        role=role_of(id,parent),idpath=table.concat(item.ids,'/') .. '/' .. id} end
+                        role=role_of(id,parent),idpath=table.concat(item.ids,'/') .. '/' .. id,
+                        settlement_heading=(id=='dy_province') and strip_levels(item.label,2) or nil} end
                 end
                 if #item.path>=16 and count>0 then limit('depth-budget',item.label,#item.path)
                 else
@@ -437,12 +472,13 @@ local function page_read()
         .. ',"entries":' .. #entries .. ',"errors":' .. errors .. ',"done":' .. tostring(finished)
         .. ',"complete":' .. tostring(finished and not limited) .. ',"limited":' .. tostring(limited) .. '}')
     if finished then
+        arrange_entries()
         phase=limited and 'limited' or 'ready';result='capture-complete';verify_reader()
         if refresh_announce then
             -- Like focus moving into a newly opened dialog: start at the first new item.
             refresh_announce=false
             -- Prefer a new heading, then new text, then any new item.
-            local heading,text_item,first_new,focus
+            local heading,text_item,first_new,focus,composite
             local kept,seen_keys=0,{}
             for position,entry in ipairs(entries) do
                 local key=stable_key(entry)
@@ -453,10 +489,11 @@ local function page_read()
                     first_new=first_new or position
                     local role=entry_role(entry)
                     if role=='heading' then heading=heading or position
+                    elseif entry.states then composite=composite or position
                     elseif role==nil then text_item=text_item or position end
                 end
             end
-            local found=heading or text_item or first_new
+            local found=heading or composite or text_item or first_new
             if found then
                 speak('Screen updated.')
                 index=found-1
@@ -537,8 +574,8 @@ local function read_request()
 end
 local function stop(reason)
     polling=false;generation=generation+1;phase='cancelled';result=reason;finished=false;entries={};queue={}
-    if real_timer then pcall(function() real_timer.unregister(timer_name) end) end
-    core:remove_listener(timer_name)
+    if real_timer then pcall(function() real_timer.unregister(timer_name) end); pcall(function() real_timer.unregister(watchdog_name) end) end
+    core:remove_listener(timer_name); core:remove_listener(watchdog_name)
 end
 -- HUD reading mode (Shift+F2), like a screen reader's browse mode: while on,
 -- the companion's standard keys (arrows, Home/End, letters, Enter) read HUD
@@ -557,7 +594,7 @@ end
 local function needs_confirmation(id)
     return id=='button_end_turn' or id:match('quit')~=nil or id:match('exit')~=nil or id:match('load')~=nil
         or id:match('abandon')~=nil or id:match('disband')~=nil or id:match('raze')~=nil
-        or id:match('demolish')~=nil or id:match('dismantle')~=nil
+        or id:match('demolish')~=nil or id:match('dismantle')~=nil or id:match('recruit')~=nil
 end
 local activatable={button=true,tab=true,['list item']=true}
 local function activate_current()
@@ -661,6 +698,7 @@ local function watch_live_text()
 end
 local function tick()
     if not polling then return end
+    tick_count=tick_count+1
     local ok,err=pcall(function()
         -- Capture work keeps its one-second pace; keys are polled every 100 ms
         -- while HUD reading is on.
@@ -718,7 +756,19 @@ core:add_listener('warhammer_campaign_discovery_first_tick','FirstTickAfterWorld
         polling=true
         core:add_listener(timer_name,'RealTimeTrigger',function(c) return c.string==timer_name end,tick,true)
         emit('{"kind":"session","version":' .. quoted(version) .. ',"session":' .. quoted(session) .. ',"read_only":true,"scheduler":"real_timer"}')
+        core:add_listener(watchdog_name,'RealTimeTrigger',function(c) return c.string==watchdog_name end,function()
+            if not polling then return end
+            pcall(function()
+                if tick_count==watchdog_seen then
+                    real_timer.unregister(timer_name); real_timer.register_singleshot(timer_name,100)
+                    emit('{"kind":"timer-rearmed","ticks":' .. tick_count .. '}')
+                end
+            end)
+            watchdog_seen=tick_count
+            pcall(function() real_timer.register_singleshot(watchdog_name,3000) end)
+        end,true)
         request_capture('first-tick');publish_status();real_timer.register_singleshot(timer_name,1000)
+        real_timer.register_singleshot(watchdog_name,3000)
     end)
     if not ok then stop('scheduler-error');phase='error';pcall(function() emit('{"kind":"error","detail":' .. quoted(type(err)=='string' and err or type(err)) .. '}');publish_status() end) end
 end,false)
@@ -737,6 +787,8 @@ end,function(c)
             if polling then pcall(function() real_timer.unregister(timer_name); real_timer.register_singleshot(timer_name,reader_mode and 100 or 1000) end) end
         elseif c.string=='script_shift_F3' then
             if phase~='waiting' and phase~='scanning' then request_capture('keyboard-refresh') end
+            -- Also recovers a stopped reader timer.
+            if polling then pcall(function() real_timer.unregister(timer_name); real_timer.register_singleshot(timer_name,reader_mode and 100 or 1000) end) end
         elseif c.string=='script_F4' then activate_current()
         elseif finished then browse(c.string=='script_F2' and 1 or -1,false)
         elseif phase~='waiting' and phase~='scanning' then request_capture('keyboard') end

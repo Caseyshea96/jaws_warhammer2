@@ -1,5 +1,6 @@
 local saved_io,saved_date=io,os.date
 local scenarios=0
+local watchdog_pending
 local nodes,files,listeners,pending,ui_ready,destroyed,dispatches,clock,clicked
 local prefix=(os.getenv('LOCALAPPDATA') or '') .. '/JawsWarhammer2/'
 local owner=string.rep('a',32)
@@ -41,8 +42,10 @@ local function start(context,flag,count)
         remove_listener=function(_,name) listeners[name]=nil end,
         add_ui_destroyed_callback=function(_,callback) destroyed=callback end}
     cm=setmetatable({},{__index=function() error('Model-timer/query path must not be used') end})
-    real_timer={register_singleshot=function(name,delay) assert(name==timer and (delay==1000 or delay==100));pending=true end,
-        unregister=function(name) assert(name==timer);pending=false end}
+    real_timer={register_singleshot=function(name,delay)
+            if name=='warhammer_campaign_readonly_watchdog' then assert(delay==3000);watchdog_pending=true;return end
+            assert(name==timer and (delay==1000 or delay==100));pending=true end,
+        unregister=function(name) if name==timer then pending=false else assert(name=='warhammer_campaign_readonly_watchdog');watchdog_pending=false end end}
     UIComponent=function(value) assert(type(value)=='table');return value end
     os.date=function(format) assert(format=='!%Y-%m-%dT%H:%M:%SZ');return clock end
     io={open=function(path,mode)
@@ -440,5 +443,47 @@ el('tree.child4.child0','wh2_main_hef_barracks_1',0,'','','built_panel')
 begin(); for n=1,12 do tick(1) end
 assert(go('wh2 main hef barracks 1, button'),'Fallback name')
 assert(dispatches==0)
+-- 0.6.44: buildings follow their settlement's name; minimap icons go last;
+-- a popup opened by a click starts at its first building, not Abandon;
+-- construction turns are read; recruit buttons ask first.
+effect={get_localised_string=function(key) return loc[key] or '' end}
+make=start('campaign',nil,1); nodes.tree.count=6
+el('tree.child4','settlement_panel',2)
+el('tree.child4.child0','settlement',2)
+el('tree.child4.child0.child0','settlement_capital',1,'','','player')
+el('tree.child4.child0.child0.child0','building_slot_1',1,'','','NewState')
+el('tree.child4.child0.child0.child0.child0','wh2_main_special_settlement_lothern_2',1,'','','built_panel')
+el('tree.child4.child0.child0.child0.child0.child0','turns_center',0,'3','Construction turns left||You are currently building this item.','construct')
+el('tree.child4.child0.child1','button_zoom',1,'','','active')
+el('tree.child4.child0.child1.child0','dy_province',0,'Lothern','Zoom to province capital','owned')
+el('tree.child4.child1','info',1)
+el('tree.child4.child1.child0','dy_txt',0,'Later text')
+el('tree.child5','radar',1)
+el('tree.child5.child0','main_icon',0,'','Settlement: Lothern')
+el('tree.child0.child0','button_agents',0,'','Recruit Hero||Heroes can be embedded into armies')
+begin(); for n=1,12 do tick(1) end
+go('Lothern, heading'); fire('ShortcutTriggered',{string='script_F2'})
+assert(said()=='Lothern (Elven Village), button, Lothern, under construction, 3 turns left, 6 of 7',said())
+fire('ShortcutTriggered',{string='script_F2'})
+assert(starts(said(),'Settlement: Lothern, 7 of 7'),'Minimap icons are read last: ' .. said())
+go('Recruit Hero'); fire('ShortcutTriggered',{string='script_F4'})
+assert(dispatches==1 and said()=='Recruit Hero activated.','Opening the hero panel needs no confirmation')
+-- A popup with Abandon and buildings: start at the first building.
+el('tree.child6','construction_popup',2); nodes.tree.count=7
+el('tree.child6.child0','button_abandon',0,'','Click to abandon this settlement on the next turn.')
+el('tree.child6.child1','slot_parent',1)
+el('tree.child6.child1.child0','1',1)
+el('tree.child6.child1.child0.child0','wh2_main_hef_barracks_1',0,'','','normal')
+for n=1,16 do tick(1) end
+assert(said()=='Militia Camp, button, ' .. said():match('(%d+ of %d+)$'),contents('bridge.jsonl'):sub(-500))
+-- 0.6.45: a lost timer event is recovered by the watchdog.
+make=start('campaign',nil,1); begin(); for n=1,12 do tick(1) end
+assert(contents('bridge.jsonl'):find('Campaign map, ',1,true))
+pending=false -- the game dropped the reader's next timer event
+local function fire_watchdog() assert(watchdog_pending,'Watchdog armed'); watchdog_pending=false; fire('RealTimeTrigger',{string='warhammer_campaign_readonly_watchdog'}) end
+fire_watchdog(); assert(not pending,'First watchdog run only records the tick count')
+fire_watchdog(); assert(pending,'Second run with no ticks re-arms the reader')
+assert(contents('native-ui-campaign-discovery.jsonl'):find('"kind":"timer-rearmed"',1,true))
+tick(1); fire_watchdog(); assert(watchdog_pending)
 io=saved_io;os.date=saved_date
 print('PASS: ' .. scenarios .. ' campaign diagnostic scenarios; HUD readiness, scoped discovery, typed failures, capture protocol, replay/generation/lease guards, limits, cancellation and zero clicks')

@@ -75,3 +75,17 @@ Lord in both runs, so no click was needed.
 - A list opened by the mouse deeper than three levels is not announced
   automatically (Shift+F3 re-reads); keyboard clicks re-read.
 - Physical keys still unverified (injected keys reach only the companion).
+
+## 0.6.44–0.6.45 (in progress, installed, not yet accepted)
+
+- 0.6.44: popup/build focus prefers heading → building/row → text; "under
+  construction, N turns left"; each settlement's buildings follow its heading;
+  minimap icons last; buttons with "recruit" in the ID ask first. Live: the
+  reader's timer event was lost mid-scan after selecting a province (silent,
+  no error) — the same cause as the 0.6.42 "flyover stall".
+- 0.6.45: a watchdog timer re-arms the reader when ticks stop; Shift+F3 also
+  re-arms. Harness 47. Live: Provinces → row → settlement panel announced;
+  new building order confirmed. Not yet heard: focus after opening the
+  upgrade popup, build focus, turns-left number, Recruit Hero panel.
+  Evidence: work/live-0.6.44-settlements, work/live-0.6.45-settlements.
+  Accepted rollback stays 0.6.43.
