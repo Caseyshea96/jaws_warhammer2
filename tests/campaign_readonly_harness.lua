@@ -330,5 +330,115 @@ begin(); for n=1,12 do tick(1) end
 for n=1,4 do fire('ShortcutTriggered',{string='script_F2'}) end
 local heard=contents('bridge.jsonl')
 assert(heard:find('Accept, button, ',1,true) and not heard:find('Set, button',1,true),heard)
+-- 0.6.43: province rows are list items; buildings are named from the game's
+-- text; starting a construction and abandoning ask first; a click re-reads.
+local loc={building_culture_variants_name_wh2_main_hef_barracks_1='Militia Camp',
+    building_culture_variants_name_wh2_main_special_settlement_lothern_2='Lothern (Elven Village)'}
+effect={get_localised_string=function(key) return loc[key] or '' end}
+local make
+local function starts(value,prefix) return value:sub(1,#prefix)==prefix end
+local function el(path,id,children,label,tip,state)
+    local item=make(path,id,children,label or '',true)
+    if tip then function item:GetTooltipText() return tip end end
+    if state then function item:CurrentState() return state end end
+    return item
+end
+local function go(name)
+    for n=1,30 do
+        local now=said() or ''
+        if now:sub(1,#name)==name then return now end
+        fire('ShortcutTriggered',{string='script_F2'})
+    end
+    error('Not found: ' .. name .. ' in ' .. contents('bridge.jsonl'):sub(-600))
+end
+local function count_updates() return select(2,contents('bridge.jsonl'):gsub('Screen updated%.','')) end
+make=start('campaign',nil,1); nodes.tree.count=5
+el('tree.child4','provinces',2)
+el('tree.child4.child0','tx_list_title',0,'Your Provinces')
+el('tree.child4.child1','list_box',1)
+el('tree.child4.child1.child0','row_entry_wh2_main_vor_straits_of_lothern',5,'','Left-click to zoom to province','unselected')
+el('tree.child4.child1.child0.child0','region_name',0,'Straits of Lothern','[[col:red]](Contested province)[[/col]]','contested')
+el('tree.child4.child1.child0.child1','icon_public_order',0,'','Public Order: Neutral','neutral')
+el('tree.child4.child1.child0.child2','income',1,'520','Income')
+el('tree.child4.child1.child0.child2.child0','coin',0)
+el('tree.child4.child1.child0.child3','mon',0,'','[[col:red]](Contested province)[[/col]]','contested')
+el('tree.child4.child1.child0.child4','upgradable',1,'','Building upgrades available')
+el('tree.child4.child1.child0.child4.child0','glow',0,'','Building upgrades available')
+begin(); for n=1,12 do tick(1) end
+assert(contents('bridge.jsonl'):find('Campaign map, 4 items.',1,true),contents('bridge.jsonl'))
+assert(go('Your Provinces')=='Your Provinces, heading, 3 of 4',said())
+local row=go('Straits of Lothern')
+assert(row=='Straits of Lothern, list item, 520, Contested province, Public Order: Neutral, Building upgrades available, 4 of 4',row)
+assert(not contents('bridge.jsonl'):find('Left-click to zoom',1,true),'Row hint and parts are folded into the row')
+fire('ShortcutTriggered',{string='script_F4'})
+assert(dispatches==1 and clicked=='tree.child4.child1.child0' and said()=='Straits of Lothern activated.',said())
+-- The settlement panel opens as a new root panel: read from its title.
+el('tree.child5','settlement_panel',2); nodes.tree.count=6
+el('tree.child5.child0','header',1)
+el('tree.child5.child0.child0','dy_txt',0,'Straits of Lothern')
+el('tree.child5.child1','settlement',2)
+el('tree.child5.child1.child0','settlement_capital',2,'','','player')
+el('tree.child5.child1.child0.child0','building_slot_1',1,'','','NewState')
+el('tree.child5.child1.child0.child0.child0','wh2_main_hef_barracks_1',1,'','','built_panel')
+el('tree.child5.child1.child0.child0.child0.child0','units_list',1)
+el('tree.child5.child1.child0.child0.child0.child0.child0','wh2_main_hef_inf_spearmen_0',0,'','Spearmen')
+el('tree.child5.child1.child0.child1','building_slot_2',1,'','','NewState')
+el('tree.child5.child1.child0.child1.child0','Slot2_Construction_Site',1,'','','normal')
+el('tree.child5.child1.child0.child1.child0.child0','button_expand_slot',0,'','','locked')
+el('tree.child5.child1.child1','button_zoom',1,'','','selected')
+el('tree.child5.child1.child1.child0','dy_province',0,'Lothern','Zoom to province capital','owned')
+for n=1,14 do tick(1) end
+assert(count_updates()==1,contents('bridge.jsonl'):sub(-800))
+assert(starts(said(),'Straits of Lothern, heading,'),said())
+assert(go('Lothern, heading'),'Settlement name is a heading')
+local barracks=go('Militia Camp')
+assert(starts(barracks,'Militia Camp, button, Lothern') and barracks:sub(-15)=='Units: Spearmen',barracks)
+local slot=go('Construction slot')
+assert(starts(slot,'Construction slot, button, Lothern, locked, '),slot)
+go('Militia Camp'); fire('ShortcutTriggered',{string='script_F4'})
+assert(dispatches==2 and clicked=='tree.child5.child1.child0.child0.child0' and said()=='Militia Camp activated.','A built building opens its upgrade options')
+-- Nothing changed after the click: the re-read stays quiet and keeps the place.
+local before=contents('bridge.jsonl')
+for n=1,10 do tick(1) end
+assert(contents('bridge.jsonl')==before,'Unchanged re-read is quiet: ' .. contents('bridge.jsonl'):sub(#before+1))
+assert(contents('native-ui-campaign-discovery.jsonl'):find('"kind":"refresh-unchanged"',1,true))
+fire('ShortcutTriggered',{string='script_F2'}); assert(starts(said(),'Construction slot'),said())
+-- Construction popup: upgrades with costs; building asks first; locked refuses.
+make=start('campaign',nil,1); nodes.tree.count=5
+el('tree.child4','construction_popup',2)
+el('tree.child4.child0','slot_parent',3)
+el('tree.child4.child0.child0','0',1)
+el('tree.child4.child0.child0.child0','wh2_main_special_settlement_lothern_1',0,'','','built')
+el('tree.child4.child0.child1','1',1)
+el('tree.child4.child0.child1.child0','wh2_main_special_settlement_lothern_2',1,'','','normal')
+el('tree.child4.child0.child1.child0.child0','dev_points',1)
+el('tree.child4.child0.child1.child0.child0.child0','dy_num_points_required',0,'1','Population Surplus cost||This is the amount','normal')
+el('tree.child4.child0.child2','2',1)
+el('tree.child4.child0.child2.child0','wh2_main_special_settlement_lothern_3',1,'','','locked')
+el('tree.child4.child0.child2.child0.child0','dev_points',1)
+el('tree.child4.child0.child2.child0.child0.child0','dy_num_points_required',0,'2','Population Surplus cost||This is the amount','red')
+el('tree.child4.child1','button_abandon',0,'','Click to abandon this settlement on the next turn.')
+begin(); for n=1,12 do tick(1) end
+local built=go('wh2 main special settlement lothern 1')
+assert(starts(built,'wh2 main special settlement lothern 1, button, built,'),built)
+local upgrade=go('Lothern (Elven Village)')
+assert(starts(upgrade,'Lothern (Elven Village), button, Population surplus cost 1, '),upgrade)
+fire('ShortcutTriggered',{string='script_F4'})
+assert(dispatches==0 and said()=='Build Lothern (Elven Village)? Press Enter again to confirm.',said())
+fire('ShortcutTriggered',{string='script_F4'})
+assert(dispatches==1 and clicked=='tree.child4.child0.child1.child0' and said()=='Lothern (Elven Village) activated.',said())
+local locked=go('wh2 main special settlement lothern 3')
+assert(locked:find('locked, Population surplus cost 2, not enough',1,true),locked)
+fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==1 and said():sub(-15)=='is unavailable.',said())
+go('Click to abandon'); fire('ShortcutTriggered',{string='script_F4'})
+assert(dispatches==1 and said():sub(-29)=='Press Enter again to confirm.',said())
+-- Missing game text falls back to the building ID; no effect library at all is safe.
+effect=nil
+make=start('campaign',nil,1); nodes.tree.count=5
+el('tree.child4','building_slot_1',1)
+el('tree.child4.child0','wh2_main_hef_barracks_1',0,'','','built_panel')
+begin(); for n=1,12 do tick(1) end
+assert(go('wh2 main hef barracks 1, button'),'Fallback name')
+assert(dispatches==0)
 io=saved_io;os.date=saved_date
 print('PASS: ' .. scenarios .. ' campaign diagnostic scenarios; HUD readiness, scoped discovery, typed failures, capture protocol, replay/generation/lease guards, limits, cancellation and zero clicks')

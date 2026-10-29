@@ -114,3 +114,6 @@ minutes, even after a title-bar click to focus it. Earlier tutorial runs did
 pass the flyover. Unknown whether the game froze, paused for input, or the
 real_timer stopped. Evidence: `work/live-0.6.42-provinces`. Next session:
 reproduce once; if it recurs, compare with work/live-0.6.37 (passed).
+
+Resolved in 0.6.43: the stall did not recur (two runs reached the HUD), and
+the settlements work is done — see SETTLEMENTS_0_6_43.md.

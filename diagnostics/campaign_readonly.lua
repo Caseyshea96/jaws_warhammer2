@@ -26,7 +26,7 @@ local initial,owner,expiry,mode=read_flag()
 local diagnostic=initial~=nil
 if not diagnostic then owner,expiry,mode='player','9999-12-31T23:59:59Z','player' end
 local session='campaign:' .. owner .. ':' .. tostring({})
-local version='0.6.42'
+local version='0.6.43'
 local sequence,generation,bytes,run,attempts=0,1,0,0,0
 local phase,result,last_request='initialising','ready',''
 local queue,head,visited,page,entries,index={},1,0,0,{},0
@@ -41,6 +41,17 @@ local last_request_raw,last_readiness
 local reported_limits={}
 local publish_status,request_capture
 local captured_signature,previous_keys,refresh_announce,changed_ticks,last_signature=nil,{},false,0,nil
+local focus_key,post_click,previous_count=nil,nil,0 -- the item to return to after a re-read; re-read once after a click
+local function remember_entries()
+    -- Keys use element IDs and names, so a panel added at the root does not make every item look new.
+    previous_keys={}; previous_count=0
+    for _,entry in ipairs(entries) do
+        local key=(entry.idpath or entry.key) .. '|' .. entry.name
+        if not previous_keys[key] then previous_keys[key]=true; previous_count=previous_count+1 end
+    end
+    local current=entries[index]
+    focus_key=current and ((current.idpath or current.key) .. '|' .. current.name) or nil
+end
 local verified_reader=false
 local client_captures=0
 local auto_reader=false -- verify-mode HUD reading keeps the one-second pace
@@ -187,8 +198,7 @@ local function resolve(root,path,ids)
     return node
 end
 local function cancel(reason)
-    previous_keys={}
-    for _,entry in ipairs(entries) do previous_keys[entry.key]=true end
+    remember_entries()
     generation=generation+1; phase='cancelled'; result=reason
     finished=false; entries={}; queue={}; index=0
     emit('{"kind":"cancelled","run":' .. run .. ',"generation":' .. generation .. ',"reason":' .. quoted(reason) .. '}')
@@ -197,11 +207,59 @@ local function move_cursor(step)
     if index==0 then index=step>0 and 1 or #entries else index=((index-1+step)%#entries)+1 end
     return entries[index]
 end
-local function role_of(id)
+local function role_of(id,parent)
     if type(id)~='string' then return nil end
     return (id:sub(1,7)=='button_' and 'button') or (id:sub(1,4)=='tab_' and 'tab')
         or (id:sub(1,7)=='toggle_' and 'toggle button') or (id=='3D_advisor_portrait' and 'button')
-        or ((id=='dy_title' or id=='tx_title') and 'heading') or nil
+        or (id:sub(1,5)=='sort_' and 'button')
+        or ((id=='dy_title' or id=='tx_title' or id=='tx_list_title' or id=='dy_province') and 'heading')
+        or ((id=='dy_txt' and parent=='header') and 'heading') or nil
+end
+local function entry_role(entry) return entry.role or role_of(entry.id) end
+-- Stable across panels opening (child indices shift when a root panel is added).
+local function stable_key(entry) return (entry.idpath or entry.key) .. '|' .. entry.name end
+-- Province rows and buildings are read as one item each: their child elements
+-- (name, income, cost, lock, units) are folded into it.
+local function composite_kind(id,ids,depth)
+    if type(id)~='string' then return nil end
+    if id:sub(1,10)=='row_entry_' then return 'row' end
+    local parent,grand=ids[depth-1],ids[depth-2]
+    if (type(parent)=='string' and parent:sub(1,14)=='building_slot_') or grand=='slot_parent' then return 'building' end
+end
+local building_names,settlement_names={},{}
+local function building_label(key)
+    if key:match('^Slot%d+_Construction_Site$') then return 'Construction slot' end
+    if building_names[key] then return building_names[key] end
+    -- The game's own scripts read building names this way (lib_common_ui).
+    local ok,loc=read(function() local v=effect.get_localised_string('building_culture_variants_name_' .. key); return v end)
+    local result=(ok and type(loc)=='string') and clean(bounded(loc,200)) or ''
+    if result=='' then result=(key:gsub('_',' ')) end
+    building_names[key]=result
+    return result
+end
+local building_states={built='built',locked='locked',not_owned='not owned'}
+local function add_state(entry,value)
+    if value=='' or #entry.states>=6 then return end
+    for _,known in ipairs(entry.states) do if known==value then return end end
+    entry.states[#entry.states+1]=value
+end
+local function contribute(entry,id,name,tip_name,state,parent)
+    if id=='region_name' and name~='' then
+        entry.name=name
+        if tip_name~='' then add_state(entry,(tip_name:gsub('^%((.*)%)$','%1'))) end
+    elseif id=='income' and name~='' then entry.value=name
+    elseif id=='dy_num_points_required' and name~='' then
+        add_state(entry,'Population surplus cost ' .. name .. (state=='red' and ', not enough' or ''))
+    elseif id=='button_expand_slot' and state=='locked' then add_state(entry,'locked')
+    elseif parent=='units_list' and tip_name~='' then
+        if #entry.units<8 then entry.units[#entry.units+1]=tip_name end
+    elseif tip_name~='' and tip_name~='Left-click to zoom to province' then
+        add_state(entry,(tip_name:gsub('^%((.*)%)$','%1')))
+    end
+end
+local function strip_levels(label,levels)
+    for _=1,levels do label=label:gsub('%.child%d+$','') end
+    return label
 end
 local pending_confirm -- End Turn / Quit / Exit / Load ask first
 local function browse(step,quiet)
@@ -212,11 +270,13 @@ local function browse(step,quiet)
     if #entries==0 then if not quiet then speak('No readable campaign text.') end;return false end
     local item=move_cursor(step)
     if not quiet then
-        local role=role_of(item.id)
+        local role=entry_role(item)
         local parts={item.name}
         if role then parts[#parts+1]=role end
         if item.value and item.value~='' then parts[#parts+1]=item.value end
+        for _,state in ipairs(item.states or {}) do parts[#parts+1]=state end
         parts[#parts+1]=index .. ' of ' .. #entries
+        if item.units and #item.units>0 then parts[#parts+1]='Units: ' .. table.concat(item.units,', ') end
         if item.description and item.description~='' then parts[#parts+1]=item.description end
         speak(table.concat(parts,', '))
     end
@@ -303,26 +363,55 @@ local function page_read()
                         tip_name=clean(string.sub(tooltip,1,position-1)); tip_description=clean(string.sub(tooltip,position+2)); break
                     end
                 end
+                local depth=#item.path
+                local parent=item.ids[depth-1]
+                local group,kind=item.group,nil
+                if group then
+                    -- Part of a province row or building: fold it into that item.
+                    contribute(group,id,name,tip_name,state,parent)
+                else kind=composite_kind(id,item.ids,depth) end
+                if kind and #entries>=512 then limit('entry-budget',item.label,#entries)
+                elseif kind then
+                    local entry={key='campaign:' .. item.label .. ':' .. kind,name=tip_name,value='',description='',states={},units={},
+                        id=id,path=item.path,ids=item.ids,idpath=table.concat(item.ids,'/') .. '/' .. id}
+                    if kind=='row' then entry.role='list item'
+                    else
+                        entry.role='button'; entry.name=building_label(id)
+                        add_state(entry,building_states[state] or '')
+                        if parent and parent:sub(1,14)=='building_slot_' then entry.value=settlement_names[strip_levels(item.label,3)] or '' end
+                        -- Choosing an available upgrade in the construction popup starts building it.
+                        if parent~=nil and item.ids[depth-2]=='slot_parent' and state=='normal' then entry.confirm='Build ' .. entry.name end
+                    end
+                    entries[#entries+1]=entry; group=entry
+                end
                 local entry_name,value,description=name,'',''
-                if name~='' and tip_name~='' and tip_name~=name then entry_name,value,description=tip_name,name,tip_description
+                if group then entry_name=''
+                elseif name~='' and tip_name~='' and tip_name~=name then entry_name,value,description=tip_name,name,tip_description
                 elseif name=='' then entry_name,description=tip_name,tip_description end
+                if id=='dy_province' and name~='' then
+                    -- A settlement's name above its building slots.
+                    entry_name,value,description=name,'',''
+                    settlement_names[strip_levels(item.label,2)]=name
+                end
                 -- Containers named button_* sit in NewState; only clickable states count.
-                if entry_name=='' and (state=='active' or state=='hover' or state=='selected' or state=='down') then entry_name=button_name(id,item.ids) end
-                if name_labels[id] then
+                if entry_name=='' and not group and (state=='active' or state=='hover' or state=='selected' or state=='down') then entry_name=button_name(id,item.ids) end
+                if group then -- folded into the row/building above
+                elseif name_labels[id] then
                     -- The tooltip is a warning ("Dismiss all advice ..."): keep it as the description.
                     if entry_name~=name_labels[id] then description=tooltip end
                     entry_name,value=name_labels[id],(name~='' and name~=tooltip) and name or ''
                 elseif value_labels[id] and value=='' and name~='' then entry_name,value=value_labels[id],name end
                 local previous=entries[#entries]
                 if punctuation[entry_name] and value=='' then entry_name=''
-                elseif value=='' and description=='' and is_number(entry_name) and previous and (previous.value or '')=='' then
+                elseif value=='' and description=='' and is_number(entry_name) and previous and (previous.value or '')=='' and not previous.states then
                     -- A bare count belongs to the item before it: "Missions, 1".
                     previous.value=entry_name; entry_name=''
                 end
                 if entry_name~='' then
                     if #entries>=512 then limit('entry-budget',item.label,#entries)
                     else entries[#entries+1]={key='campaign:' .. item.label .. ':' .. (name~='' and 'text' or 'tooltip'),
-                        name=entry_name,value=value,description=description,id=id,path=item.path,ids=item.ids} end
+                        name=entry_name,value=value,description=description,id=id,path=item.path,ids=item.ids,
+                        role=role_of(id,parent),idpath=table.concat(item.ids,'/') .. '/' .. id} end
                 end
                 if #item.path>=16 and count>0 then limit('depth-budget',item.label,#item.path)
                 else
@@ -333,7 +422,7 @@ local function page_read()
                         for depth,value in ipairs(item.path) do path[depth]=value;ids[depth]=item.ids[depth] end
                         if #path>0 then ids[#path]=id end
                         path[#path+1]=child_index
-                        queue[#queue+1]={path=path,ids=ids,label=item.label .. '.child' .. child_index}
+                        queue[#queue+1]={path=path,ids=ids,label=item.label .. '.child' .. child_index,group=group}
                     end
                 end
             end
@@ -352,17 +441,35 @@ local function page_read()
         if refresh_announce then
             -- Like focus moving into a newly opened dialog: start at the first new item.
             refresh_announce=false
-            local found,first_new
+            -- Prefer a new heading, then new text, then any new item.
+            local heading,text_item,first_new,focus
+            local kept,seen_keys=0,{}
             for position,entry in ipairs(entries) do
-                if not previous_keys[entry.key] then
+                local key=stable_key(entry)
+                if key==focus_key then focus=focus or position end
+                if previous_keys[key] and not seen_keys[key] then kept=kept+1 end
+                seen_keys[key]=true
+                if not previous_keys[key] then
                     first_new=first_new or position
-                    local role=role_of(entry.id)
-                    if role==nil or role=='heading' then found=position;break end
+                    local role=entry_role(entry)
+                    if role=='heading' then heading=heading or position
+                    elseif role==nil then text_item=text_item or position end
                 end
             end
-            found=found or first_new
-            speak('Screen updated.')
-            index=found and found-1 or 0
+            local found=heading or text_item or first_new
+            if found then
+                speak('Screen updated.')
+                index=found-1
+            elseif kept<previous_count then
+                -- Something closed: say so and stay on the same item if it is still there.
+                speak('Screen updated.')
+                index=focus and focus-1 or 0
+            else
+                -- Nothing new (a click that changed only a state): stay on the same item, quietly.
+                index=focus or 0
+                emit('{"kind":"refresh-unchanged","entries":' .. #entries .. '}')
+                return
+            end
         else
             speak('Campaign map, ' .. #entries .. ' items.' .. (limited and ' Some text could not be read.' or ''))
         end
@@ -378,6 +485,7 @@ request_capture=function(source)
     if not diagnostic and bytes>1048576 then bytes=0 end
     attempts=attempts+1;generation=generation+1;phase='waiting';result='accepted'
     entries={};queue={};index=0;head=1;visited=0;page=0;errors=0;limited=false;finished=false
+    settlement_names={};post_click=nil
     waiting_ticks=0;stable_ticks=0;stable_identity=nil;last_readiness=nil;reported_limits={}
     emit('{"kind":"capture-request","generation":' .. generation .. ',"attempt":' .. attempts .. ',"source":' .. quoted(source) .. '}')
     return true
@@ -448,13 +556,16 @@ local function publish_reader_state(force)
 end
 local function needs_confirmation(id)
     return id=='button_end_turn' or id:match('quit')~=nil or id:match('exit')~=nil or id:match('load')~=nil
+        or id:match('abandon')~=nil or id:match('disband')~=nil or id:match('raze')~=nil
+        or id:match('demolish')~=nil or id:match('dismantle')~=nil
 end
+local activatable={button=true,tab=true,['list item']=true}
 local function activate_current()
     if not finished or #entries==0 or index==0 then speak('No item selected.'); return end
     local item=entries[index]
     local id=type(item.id)=='string' and item.id or ''
-    local role=role_of(id)
-    if role~='button' and role~='tab' then speak('Not supported yet.'); return end
+    local role=entry_role(item)
+    if not activatable[role] or (role=='button' and id:sub(1,5)=='sort_') then speak('Not supported yet.'); return end
     local context=hud_context()
     if not context or context.root_address~=root_identity or context.layout_address~=layout_identity or context.count~=root_count then
         emit('{"kind":"activation-blocked","reason":"hud-changed"}'); cancel('hud-changed'); speak('The screen changed. Reading it again.'); return
@@ -468,18 +579,20 @@ local function activate_current()
     end
     local _,interactive=read(function() local v=node:IsInteractive(); return v end)
     local _,state=read(function() local v=node:CurrentState(); return v end)
-    if interactive~=true or state=='inactive' or state=='locked' or state=='disabled' then
+    if interactive~=true or state=='inactive' or state=='locked' or state=='disabled' or state=='not_owned' then
         emit('{"kind":"activation-blocked","reason":' .. quoted('state:' .. tostring(state) .. ':' .. tostring(interactive)) .. '}')
         speak(item.name .. ' is unavailable.'); return
     end
-    if needs_confirmation(id) and not (pending_confirm and pending_confirm.key==item.key and ticks<=pending_confirm.until_tick) then
+    if (item.confirm or needs_confirmation(id)) and not (pending_confirm and pending_confirm.key==item.key and ticks<=pending_confirm.until_tick) then
         pending_confirm={key=item.key,until_tick=ticks+10}
-        speak(item.name .. '? Press Enter again to confirm.'); return
+        speak((item.confirm or item.name) .. '? Press Enter again to confirm.'); return
     end
     pending_confirm=nil
     emit('{"kind":"activation-dispatch","id":' .. quoted(id) .. ',"name":' .. quoted(item.name) .. '}')
     local clicked=pcall(function() node:SimulateLClick() end) -- the only native click in this module
     speak(clicked and (item.name .. ' activated.') or ('Could not activate ' .. item.name .. '.'))
+    -- Re-read once even if the change is deeper than the panel watch (a list opening).
+    if clicked then post_click=ticks+2 end
 end
 local function speak_current()
     if not finished then
@@ -562,6 +675,9 @@ local function tick()
                 for _=1,(diagnostic and 1 or 3) do if phase=='scanning' then page_read() end end
             end
             if phase=='ready' or phase=='limited' then watch_live_text() end
+            if (phase=='ready' or phase=='limited') and post_click and ticks>=post_click then
+                post_click=nil; remember_entries(); refresh_announce=request_capture('after-activation')
+            end
             -- Re-read automatically when the visible panels change and settle.
             if phase=='ready' or phase=='limited' or phase=='cancelled' then
                 local context=phase~='cancelled' and hud_context() or nil
@@ -574,8 +690,7 @@ local function tick()
                     if changed_ticks>=2 then
                         changed_ticks=0
                         if phase~='cancelled' then
-                            previous_keys={}
-                            for _,entry in ipairs(entries) do previous_keys[entry.key]=true end
+                            remember_entries()
                         end
                         refresh_announce=request_capture('auto-refresh')
                     end

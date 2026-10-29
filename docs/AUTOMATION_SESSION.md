@@ -446,3 +446,11 @@ Resumed from Codex's 0.6.31 checkpoint. Live: 0.6.31 read the HUD after the
 flyover (59 items, 1 text-limit issue); 0.6.32 complete (53 items, 0 issues,
 self-test passed) with NVDA-style campaign speech. Accepted. Details:
 CAMPAIGN_READER_0_6_32.md.
+
+## 0.6.43 — settlements by keyboard (October 29)
+
+Provinces tab rows are list items; Enter selects the province and opens its
+settlement panel; buildings are read with the game's names, costs and states;
+an upgrade was built by keyboard (confirmed; treasury 6000 → 4000). The
+0.6.42 campaign-start stall did not recur. 0.6.43 installed and accepted.
+Details: SETTLEMENTS_0_6_43.md.
