@@ -485,5 +485,99 @@ fire_watchdog(); assert(not pending,'First watchdog run only records the tick co
 fire_watchdog(); assert(pending,'Second run with no ticks re-arms the reader')
 assert(contents('native-ui-campaign-discovery.jsonl'):find('"kind":"timer-rearmed"',1,true))
 tick(1); fire_watchdog(); assert(watchdog_pending)
+-- 0.6.46: the upgrade popup closes when the pointer is not over it, so its
+-- options are read at the moment of the click and built in one step.
+effect={get_localised_string=function(key) return loc[key] or '' end}
+loc.building_culture_variants_name_wh2_main_special_settlement_lothern_1='Lothern (Elven Hamlet)'
+make=start('campaign',nil,1); nodes.tree.count=5
+el('tree.child4','settlement',2)
+el('tree.child4.child0','settlement_capital',1,'','','player')
+el('tree.child4.child0.child0','building_slot_1',1,'','','NewState')
+local slot_building=el('tree.child4.child0.child0.child0','wh2_main_special_settlement_lothern_1',0,'','','built_panel')
+el('tree.child4.child1','button_zoom',1,'','','active')
+el('tree.child4.child1.child0','dy_province',0,'Lothern','Zoom to province capital','owned')
+local built_key
+local function open_popup()
+    nodes.tree.count=6
+    el('tree.child5','construction_popup',1)
+    el('tree.child5.child0','list_holder',1)
+    el('tree.child5.child0.child0','building_tree',1)
+    el('tree.child5.child0.child0.child0','slot_parent',2)
+    el('tree.child5.child0.child0.child0.child0','0',1)
+    el('tree.child5.child0.child0.child0.child0.child0','wh2_main_special_settlement_lothern_1',0,'','','built')
+    el('tree.child5.child0.child0.child0.child1','1',1)
+    local upgrade=el('tree.child5.child0.child0.child0.child1.child0','wh2_main_special_settlement_lothern_2',1,'','','normal')
+    el('tree.child5.child0.child0.child0.child1.child0.child0','dev_points',1)
+    el('tree.child5.child0.child0.child0.child1.child0.child0.child0','dy_num_points_required',0,'1','Population Surplus cost||x','normal')
+    function upgrade:SimulateLClick() dispatches=dispatches+1; built_key=self.id end
+end
+local function close_popup() nodes.tree.count=5 end -- the pointer is elsewhere
+function slot_building:SimulateLClick() dispatches=dispatches+1; open_popup() end
+begin(); for n=1,12 do tick(1) end
+go('Lothern (Elven Hamlet)'); fire('ShortcutTriggered',{string='script_F4'}); close_popup()
+local heard=contents('bridge.jsonl')
+assert(heard:find('Upgrades for Lothern (Elven Hamlet), 2 options.',1,true),heard:sub(-400))
+assert(said()=='Lothern (Elven Village), button, Population surplus cost 1, 2 of 3',said())
+local quiet=contents('bridge.jsonl'); for n=1,12 do tick(1) end
+assert(contents('bridge.jsonl')==quiet,'Re-reads behind the list stay quiet: '..contents('bridge.jsonl'):sub(#quiet+1))
+fire('ShortcutTriggered',{string='script_F2'}); assert(said()=='Close upgrades, button, 3 of 3',said())
+fire('ShortcutTriggered',{string='script_F2'}); assert(said()=='Lothern (Elven Hamlet), button, built, 1 of 3',said())
+fire('ShortcutTriggered',{string='script_F4'}); assert(said()=='Lothern (Elven Hamlet) is unavailable.' and dispatches==1,said())
+fire('ShortcutTriggered',{string='script_F2'}); fire('ShortcutTriggered',{string='script_F4'})
+assert(said()=='Build Lothern (Elven Village)? Press Enter again to confirm.' and dispatches==1,said())
+fire('ShortcutTriggered',{string='script_F4'}); close_popup()
+assert(dispatches==3 and built_key=='wh2_main_special_settlement_lothern_2' and said()=='Building Lothern (Elven Village).',said())
+-- Close upgrades returns to the reader without clicking.
+go('Lothern (Elven Hamlet)'); fire('ShortcutTriggered',{string='script_F4'}); close_popup()
+fire('ShortcutTriggered',{string='script_F2'}); assert(said()=='Close upgrades, button, 3 of 3',said())
+fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==4,'Only the reopening click')
+assert(contents('bridge.jsonl'):find('Upgrades closed.',1,true))
+-- 0.6.48: when both timers stop, an ordinary game event restarts them.
+make=start('campaign',nil,1); begin(); for n=1,12 do tick(1) end
+pending=false; watchdog_pending=false
+fire('PanelOpenedCampaign',{}); assert(not pending,'No restart while ticks are recent')
+local real_time=os.time; os.time=function() return real_time()+60 end
+fire('PanelOpenedCampaign',{}); os.time=real_time
+assert(pending and watchdog_pending,'Both timers restarted')
+assert(contents('native-ui-campaign-discovery.jsonl'):find('"source":"PanelOpenedCampaign"',1,true))
+-- 0.6.49: Recruit Lord panel: lord types are tabs, candidates list items
+-- with costs; an unavailable one says why; Recruit asks first.
+make=start('campaign',nil,1); nodes.tree.count=5
+el('tree.child4','character_panel',3)
+el('tree.child4.child0','lord_parent',1)
+el('tree.child4.child0.child0','list_box',2)
+el('tree.child4.child0.child0.child0','legendary_lords',1,'','','selected')
+el('tree.child4.child0.child0.child0.child0','label',0,'Legendary Lords')
+el('tree.child4.child0.child0.child1','hef_prince',1,'','','active')
+el('tree.child4.child0.child0.child1.child0','label',0,'Prince')
+el('tree.child4.child1','candidates',2)
+el('tree.child4.child1.child0','general_candidate_8_',3,'','Alastar the White Lion\nPrince\n\n[[col:red]]Cannot recruit Lord\n\nYou have insufficient influence.[[/col]]','inactive')
+el('tree.child4.child1.child0.child0','dy_name',0,'Alastar the White Lion')
+el('tree.child4.child1.child0.child1','dy_subtype',0,'Prince')
+el('tree.child4.child1.child0.child2','IntrigueCost',1,'','Influence||This is the amount')
+el('tree.child4.child1.child0.child2.child0','Cost',0,'30','','Normal')
+el('tree.child4.child1.child1','general_candidate_1_',3,'','Imrik\nPrince','active')
+el('tree.child4.child1.child1.child0','dy_name',0,'Imrik')
+el('tree.child4.child1.child1.child1','RecruitmentCost',1,'','Cost||This amount')
+el('tree.child4.child1.child1.child1.child0','Cost',0,'825','','Normal')
+el('tree.child4.child1.child1.child2','UpkeepCost',1,'','Upkeep||This amount')
+el('tree.child4.child1.child1.child2.child0','Upkeep',0,'300','','Normal')
+local raise=el('tree.child4.child2','button_raise',0,'','','inactive')
+function raise:IsInteractive() return true end
+begin(); for n=1,12 do tick(1) end
+assert(go('Legendary Lords')=='Legendary Lords, tab, selected, ' .. said():match('(%d+ of %d+)$'),said())
+assert(starts(go('Prince, tab'),'Prince, tab, '),said())
+local alastar=go('Alastar the White Lion')
+assert(starts(alastar,'Alastar the White Lion, list item, Prince, unavailable, influence 30, ') and alastar:sub(-58)=='Cannot recruit Lord. You have insufficient influence.' or alastar:find('Cannot recruit Lord. You have insufficient influence.',1,true),alastar)
+fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==0 and said()=='Alastar the White Lion is unavailable.',said())
+local imrik=go('Imrik')
+assert(starts(imrik,'Imrik, list item, cost 825, upkeep 300, '),imrik)
+assert(not contents('bridge.jsonl'):find('Upkeep, ',1,true),'Cost labels are folded in')
+fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==1 and said()=='Imrik activated.',said())
+assert(starts(go('Recruit, button'),'Recruit, button, '),said())
+fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==1 and said()=='Recruit is unavailable.',said())
+function raise:CurrentState() return 'active' end
+fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==1 and said()=='Recruit? Press Enter again to confirm.',said())
+fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==2 and said()=='Recruit activated.',said())
 io=saved_io;os.date=saved_date
 print('PASS: ' .. scenarios .. ' campaign diagnostic scenarios; HUD readiness, scoped discovery, typed failures, capture protocol, replay/generation/lease guards, limits, cancellation and zero clicks')

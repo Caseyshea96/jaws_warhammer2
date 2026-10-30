@@ -105,3 +105,45 @@ on screen and real clicks did nothing; without it they worked.
 Options: the companion moves the pointer onto the building when it is
 activated (needs the element's screen position: Position()/Bounds() plus the
 game window's client rectangle); or find another construction path.
+
+## 0.6.46–0.6.49: building and recruiting by keyboard (accepted 0.6.49)
+
+- **Upgrade list (0.6.46–0.6.47).** Because the popup closes when the pointer
+  is not over it (owner preferred not to move the mouse), Enter on a building
+  clicks it and reads the popup's options in the same moment, then offers them
+  as a list: "Upgrades for Lothern (Elven Hamlet), 5 options." then "Lothern
+  (Elven Village), button, Population surplus cost 1, 2 of 6" … "Close
+  upgrades". Arrows/Home/End/letters move in the list; Enter on an option asks
+  "Build …? Press Enter again to confirm."; the second Enter reopens the popup
+  and clicks that option in one step (the option and its state are re-checked
+  first). Re-reads behind the list stay quiet (0.6.47 fix: the first try
+  closed the list on the post-click re-read).
+- **Timers (0.6.48).** Live 0.6.47: both the reader timer and the watchdog
+  stopped together after a province zoom. Game events that happen anyway
+  (panels opening/closing, clicks, mouse-over, settlement/character selection,
+  any shortcut) now restart them after 3 s without a tick; Shift+F3 too.
+- **Recruit Lord (0.6.49).** Lord types (Legendary Lords / Prince / Princess)
+  are tabs; candidates (`general_candidate_N_`) are list items: "Cavill, list
+  item, Prince, Fay, rank 1, upkeep 213, cost 825"; an unavailable one says
+  why ("unavailable, influence 30, … Cannot recruit Lord. You have
+  insufficient influence."). `button_raise` is "Recruit, button" and asks
+  first. Recruit Hero opens and reads ("No characters currently available."
+  in Lothern on turn 1).
+- Harness: 50 campaign scenarios.
+
+Live (pointer left on the title bar, everything after Start Campaign by keys):
+0.6.48 — P → Provinces → S → Straits of Lothern → L → Lothern (Elven Hamlet)
+→ "Upgrades for Lothern (Elven Hamlet), 5 options." → Enter, Enter →
+"Building Lothern (Elven Village)." Treasury 6000 → 4000; "Screen updated."
+"Lothern (Elven Village), button, Lothern, under construction, 3 turns left".
+0.6.49 — R → Recruit Lord → "Legendary Lords, tab, selected" → Prince tab →
+"Cavill, list item, …, cost 825" → Enter (selected) → R → "Recruit, button"
+→ Enter → "Recruit? Press Enter again to confirm." → Enter → "Recruit
+activated." Treasury 6000 → 5175, income 1901 → 1658, Cavill's army appeared
+at Lothern; "Screen updated." "Cavill Prince". No army orders, no turn ended,
+no saves. Evidence: `work/live-0.6.48-upgrades`, `work/live-0.6.49-recruit`.
+
+Still open: after recruiting, the game selects the new army (army orders stay
+blocked); the built building in the upgrade list shows a stray "Population
+surplus cost 8"; the Other Provinces sort buttons and minimap icons; physical
+keys unverified.

@@ -454,3 +454,10 @@ settlement panel; buildings are read with the game's names, costs and states;
 an upgrade was built by keyboard (confirmed; treasury 6000 → 4000). The
 0.6.42 campaign-start stall did not recur. 0.6.43 installed and accepted.
 Details: SETTLEMENTS_0_6_43.md.
+
+## 0.6.49 — building and recruiting by keyboard (October 29)
+
+The upgrade popup closes when the pointer is not over it, so its options are
+read at the click and offered as a list; a lord was recruited from the Recruit
+Lord panel. Lost timer events are restarted by a watchdog and ordinary game
+events. 0.6.49 installed and accepted. Details: SETTLEMENTS_0_6_43.md.

@@ -26,7 +26,7 @@ local initial,owner,expiry,mode=read_flag()
 local diagnostic=initial~=nil
 if not diagnostic then owner,expiry,mode='player','9999-12-31T23:59:59Z','player' end
 local session='campaign:' .. owner .. ':' .. tostring({})
-local version='0.6.45'
+local version='0.6.49'
 local sequence,generation,bytes,run,attempts=0,1,0,0,0
 local phase,result,last_request='initialising','ready',''
 local queue,head,visited,page,entries,index={},1,0,0,{},0
@@ -38,6 +38,11 @@ local timer_name='warhammer_campaign_readonly_tick'
 -- silent mid-scan, no error). A second timer re-arms it when ticks stop.
 local watchdog_name='warhammer_campaign_readonly_watchdog'
 local tick_count,watchdog_seen=0,-1
+-- Live, both timers once stopped together after a province zoom; game events
+-- that happen anyway (panels, clicks, selections, shortcuts) restart them.
+local last_tick_time=0
+local rearm_events={'PanelOpenedCampaign','PanelClosedCampaign','ComponentLClickUp','ComponentMouseOn',
+    'SettlementSelected','CharacterSelected','ShortcutTriggered'}
 local polling=false
 local seen_requests={}
 local request_count=0
@@ -45,7 +50,8 @@ local last_request_raw,last_readiness
 local reported_limits={}
 local publish_status,request_capture
 local captured_signature,previous_keys,refresh_announce,changed_ticks,last_signature=nil,{},false,0,nil
-local focus_key,post_click,previous_count=nil,nil,0 -- the item to return to after a re-read; re-read once after a click
+local focus_key,post_click,previous_count=nil,nil,0
+local menu -- upgrade options read from the construction popup -- the item to return to after a re-read; re-read once after a click
 local function remember_entries()
     -- Keys use element IDs and names, so a panel added at the root does not make every item look new.
     previous_keys={}; previous_count=0
@@ -227,7 +233,12 @@ local function stable_key(entry) return (entry.idpath or entry.key) .. '|' .. en
 local function composite_kind(id,ids,depth)
     if type(id)~='string' then return nil end
     if id:sub(1,10)=='row_entry_' then return 'row' end
+    if id:sub(1,18)=='general_candidate_' then return 'candidate' end
     local parent,grand=ids[depth-1],ids[depth-2]
+    if parent=='list_box' then
+        -- Lord types in the Recruit Lord panel (Legendary Lords, Prince, Princess).
+        for _,ancestor in ipairs(ids) do if ancestor=='lord_parent' then return 'lordtype' end end
+    end
     if (type(parent)=='string' and parent:sub(1,14)=='building_slot_') or grand=='slot_parent' then return 'building' end
 end
 local building_names,settlement_names={},{}
@@ -248,6 +259,17 @@ local function add_state(entry,value)
     entry.states[#entry.states+1]=value
 end
 local function contribute(entry,id,name,tip_name,state,parent)
+    local person=entry.kind=='candidate' or entry.kind=='lordtype'
+    if person then
+        if (id=='dy_name' or (id=='label' and entry.kind=='lordtype')) and name~='' then entry.name=name
+        elseif id=='dy_subtype' and name~='' then entry.value=name
+        elseif parent=='RecruitmentCost' and name~='' then add_state(entry,'cost ' .. name)
+        elseif parent=='UpkeepCost' and name~='' then add_state(entry,'upkeep ' .. name)
+        elseif parent=='IntrigueCost' and name~='' then add_state(entry,'influence ' .. name)
+        elseif id=='dy_rank' and name~='' then add_state(entry,'rank ' .. name)
+        elseif id=='icon_background_skill' and name~='' then add_state(entry,name) end
+        return
+    end
     if id=='region_name' and name~='' then
         entry.name=name
         if tip_name~='' then add_state(entry,(tip_name:gsub('^%((.*)%)$','%1'))) end
@@ -328,7 +350,7 @@ end
 -- Labels for HUD elements whose own text is only a value or whose tooltip is
 -- a warning rather than a name (from the 0.6.32 live capture).
 local value_labels={dy_income='Income',counter='Unresolved events'}
-local name_labels={button_end_turn='End turn',button_skip='Skip',['3D_advisor_portrait']='Repeat advice'}
+local name_labels={button_end_turn='End turn',button_skip='Skip',['3D_advisor_portrait']='Repeat advice',button_raise='Recruit'}
 local punctuation={['(']=true,[')']=true}
 -- Buttons with no text or tooltip (check marks, close buttons) still need a
 -- name, or a keyboard user cannot dismiss advice: derive it from the ID.
@@ -406,7 +428,21 @@ local function page_read()
                 elseif kind then
                     local entry={key='campaign:' .. item.label .. ':' .. kind,name=tip_name,value='',description='',states={},units={},
                         id=id,path=item.path,ids=item.ids,idpath=table.concat(item.ids,'/') .. '/' .. id}
+                    entry.kind=kind
                     if kind=='row' then entry.role='list item'
+                    elseif kind=='candidate' then
+                        entry.role='list item'; entry.name=''
+                        if state=='inactive' then
+                            -- The tooltip says why: "Cannot recruit Lord. You have insufficient influence."
+                            add_state(entry,'unavailable')
+                            local lines,reason={},{}
+                            for line in (tip .. '\n'):gmatch('([^\n]*)\n') do lines[#lines+1]=line end
+                            for position=3,#lines do local part=clean(lines[position]); if part~='' then reason[#reason+1]=part end end
+                            entry.description=table.concat(reason,'. ')
+                        end
+                    elseif kind=='lordtype' then
+                        entry.role='tab'; entry.name=(id:gsub('_',' '))
+                        if state=='selected' then add_state(entry,'selected') end
                     else
                         entry.role='button'; entry.name=building_label(id)
                         add_state(entry,building_states[state] or '')
@@ -474,6 +510,8 @@ local function page_read()
     if finished then
         arrange_entries()
         phase=limited and 'limited' or 'ready';result='capture-complete';verify_reader()
+        -- The upgrade list keeps the keys; a re-read behind it stays quiet.
+        if menu then refresh_announce=false; return end
         if refresh_announce then
             -- Like focus moving into a newly opened dialog: start at the first new item.
             refresh_announce=false
@@ -576,6 +614,7 @@ local function stop(reason)
     polling=false;generation=generation+1;phase='cancelled';result=reason;finished=false;entries={};queue={}
     if real_timer then pcall(function() real_timer.unregister(timer_name) end); pcall(function() real_timer.unregister(watchdog_name) end) end
     core:remove_listener(timer_name); core:remove_listener(watchdog_name)
+    for _,event in ipairs(rearm_events) do core:remove_listener('warhammer_campaign_readonly_rearm_' .. event) end
 end
 -- HUD reading mode (Shift+F2), like a screen reader's browse mode: while on,
 -- the companion's standard keys (arrows, Home/End, letters, Enter) read HUD
@@ -592,41 +631,168 @@ local function publish_reader_state(force)
     f:write(line); f:close(); state_line=line
 end
 local function needs_confirmation(id)
-    return id=='button_end_turn' or id:match('quit')~=nil or id:match('exit')~=nil or id:match('load')~=nil
+    return id=='button_end_turn' or id=='button_raise' or id:match('quit')~=nil or id:match('exit')~=nil or id:match('load')~=nil
         or id:match('abandon')~=nil or id:match('disband')~=nil or id:match('raze')~=nil
         or id:match('demolish')~=nil or id:match('dismantle')~=nil or id:match('recruit')~=nil
 end
 local activatable={button=true,tab=true,['list item']=true}
-local function activate_current()
-    if not finished or #entries==0 or index==0 then speak('No item selected.'); return end
-    local item=entries[index]
+local function native_click(node)
+    return pcall(function() node:SimulateLClick() end) -- the only native click in this module
+end
+-- The current item's element, re-found from a fresh root and checked; nil
+-- (after speaking why) when the screen changed or it is unavailable.
+local function fresh_node(item)
     local id=type(item.id)=='string' and item.id or ''
-    local role=entry_role(item)
-    if not activatable[role] or (role=='button' and id:sub(1,5)=='sort_') then speak('Not supported yet.'); return end
     local context=hud_context()
     if not context or context.root_address~=root_identity or context.layout_address~=layout_identity or context.count~=root_count then
-        emit('{"kind":"activation-blocked","reason":"hud-changed"}'); cancel('hud-changed'); speak('The screen changed. Reading it again.'); return
+        emit('{"kind":"activation-blocked","reason":"hud-changed"}'); menu=nil; cancel('hud-changed'); speak('The screen changed. Reading it again.'); return nil
     end
     local node,reason=resolve(context.root,item.path or {},item.ids or {})
     local leaf_ok,leaf=false,nil
     if node then leaf_ok,leaf=read(function() local v=node:Id(); return v end) end
     if not node or not leaf_ok or leaf~=id then
         emit('{"kind":"activation-blocked","reason":' .. quoted(node and 'identity' or tostring(reason)) .. '}')
-        cancel('target-changed'); speak('The screen changed. Reading it again.'); return
+        menu=nil; cancel('target-changed'); speak('The screen changed. Reading it again.'); return nil
     end
     local _,interactive=read(function() local v=node:IsInteractive(); return v end)
     local _,state=read(function() local v=node:CurrentState(); return v end)
     if interactive~=true or state=='inactive' or state=='locked' or state=='disabled' or state=='not_owned' then
         emit('{"kind":"activation-blocked","reason":' .. quoted('state:' .. tostring(state) .. ':' .. tostring(interactive)) .. '}')
-        speak(item.name .. ' is unavailable.'); return
+        speak(item.name .. ' is unavailable.'); return nil
     end
+    return node
+end
+local function find_named(parent,name,max_depth)
+    local level={parent}
+    for _=1,max_depth do
+        local next_level={}
+        for _,node in ipairs(level) do
+            local _,count=read(function() local v=node:ChildCount(); return v end)
+            if type(count)=='number' then
+                for i=0,math.min(count,64)-1 do
+                    local _,address=read(function() local v=node:Find(i); return v end)
+                    local ok,child=read(function() local v=UIComponent(address); return v end)
+                    if ok and child then
+                        local _,child_id=read(function() local v=child:Id(); return v end)
+                        if child_id==name then return child end
+                        next_level[#next_level+1]=child
+                    end
+                end
+            end
+        end
+        if #next_level>600 then return nil end
+        level=next_level
+    end
+end
+-- The game closes the upgrade popup as soon as the mouse pointer is not over
+-- it, so its options are read in the same moment it opens and offered as a
+-- list; building reopens it and clicks the option in one step.
+local function read_upgrades()
+    local ok,root=read(function() local v=core:get_ui_root(); return v end)
+    if not ok or not root then return nil end
+    local popup=find_named(root,'construction_popup',1); if not popup then return nil end
+    local slots=find_named(popup,'slot_parent',4); if not slots then return nil end
+    local _,count=read(function() local v=slots:ChildCount(); return v end)
+    if type(count)~='number' then return nil end
+    local items={}
+    for i=0,math.min(count,12)-1 do
+        local _,address=read(function() local v=slots:Find(i); return v end)
+        local ok_holder,holder=read(function() local v=UIComponent(address); return v end)
+        local building
+        if ok_holder and holder then
+            local _,inner=read(function() local v=holder:Find(0); return v end)
+            local ok_building,found=read(function() local v=UIComponent(inner); return v end)
+            if ok_building then building=found end
+        end
+        if building then
+            local _,key=read(function() local v=building:Id(); return v end)
+            local _,state=read(function() local v=building:CurrentState(); return v end)
+            if type(key)=='string' and key~='' then
+                local option={id=key,name=building_label(key),role='button',states={},units={},value='',description='',
+                    key='upgrade:' .. key,live_state=state,node=building}
+                add_state(option,building_states[state] or '')
+                local cost=find_named(building,'dy_num_points_required',3)
+                if cost then
+                    local _,amount=read(function() local v=cost:GetStateText(); return v end)
+                    local _,cost_state=read(function() local v=cost:CurrentState(); return v end)
+                    if type(amount)=='string' and amount~='' then
+                        add_state(option,'Population surplus cost ' .. clean(amount) .. (cost_state=='red' and ', not enough' or ''))
+                    end
+                end
+                items[#items+1]=option
+            end
+        end
+    end
+    return #items>0 and items or nil
+end
+local function speak_option(position)
+    local option=menu.items[position]
+    local parts={option.name,option.role}
+    for _,state in ipairs(option.states or {}) do parts[#parts+1]=state end
+    parts[#parts+1]=position .. ' of ' .. #menu.items
+    speak(table.concat(parts,', '))
+end
+local function menu_move(step)
+    pending_confirm=nil
+    local count=#menu.items
+    if menu.index==0 then menu.index=step>0 and 1 or count else menu.index=((menu.index-1+step)%count)+1 end
+    speak_option(menu.index)
+end
+local function open_upgrades(item,node)
+    emit('{"kind":"activation-dispatch","id":' .. quoted(item.id) .. ',"name":' .. quoted(item.name) .. '}')
+    if not native_click(node) then speak('Could not activate ' .. item.name .. '.'); return end
+    local items=read_upgrades()
+    emit('{"kind":"upgrades-read","found":' .. (items and #items or 0) .. '}')
+    if not items then post_click=ticks+2; speak(item.name .. ' activated.'); return end
+    items[#items+1]={name='Close upgrades',role='button',states={},key='upgrade:close',close=true}
+    menu={owner=item,items=items,index=0}
+    local first=1
+    for position,option in ipairs(items) do if option.live_state=='normal' then first=position; break end end
+    speak('Upgrades for ' .. item.name .. ', ' .. (#items-1) .. ' options.')
+    menu.index=first; speak_option(first)
+end
+local function menu_activate()
+    local option=menu.items[menu.index]
+    if not option then return end
+    if option.close then menu=nil; pending_confirm=nil; speak('Upgrades closed.'); browse(0,false); return end
+    if option.live_state~='normal' then speak(option.name .. ' is unavailable.'); return end
+    if not (pending_confirm and pending_confirm.key==option.key and ticks<=pending_confirm.until_tick) then
+        pending_confirm={key=option.key,until_tick=ticks+10}
+        speak('Build ' .. option.name .. '? Press Enter again to confirm.'); return
+    end
+    pending_confirm=nil
+    local owner=menu.owner
+    local node=fresh_node(owner); if not node then menu=nil; return end
+    -- Reopen the popup and choose the option in the same moment.
+    if not native_click(node) then menu=nil; speak('Could not open the upgrades.'); return end
+    local target
+    for _,fresh in ipairs(read_upgrades() or {}) do if fresh.id==option.id then target=fresh end end
+    menu=nil
+    if not target or target.live_state~='normal' then
+        emit('{"kind":"activation-blocked","reason":"upgrade-changed"}')
+        speak('The upgrades changed. Reading the screen again.'); post_click=ticks+2; return
+    end
+    emit('{"kind":"activation-dispatch","id":' .. quoted(option.id) .. ',"name":' .. quoted(option.name) .. '}')
+    local clicked=native_click(target.node)
+    speak(clicked and ('Building ' .. option.name .. '.') or ('Could not build ' .. option.name .. '.'))
+    post_click=ticks+2
+end
+local function activate_current()
+    if menu then menu_activate(); return end
+    if not finished or #entries==0 or index==0 then speak('No item selected.'); return end
+    local item=entries[index]
+    local id=type(item.id)=='string' and item.id or ''
+    local role=entry_role(item)
+    if not activatable[role] or (role=='button' and id:sub(1,5)=='sort_') then speak('Not supported yet.'); return end
+    local node=fresh_node(item); if not node then return end
+    if item.settlement then open_upgrades(item,node); return end
     if (item.confirm or needs_confirmation(id)) and not (pending_confirm and pending_confirm.key==item.key and ticks<=pending_confirm.until_tick) then
         pending_confirm={key=item.key,until_tick=ticks+10}
         speak((item.confirm or item.name) .. '? Press Enter again to confirm.'); return
     end
     pending_confirm=nil
     emit('{"kind":"activation-dispatch","id":' .. quoted(id) .. ',"name":' .. quoted(item.name) .. '}')
-    local clicked=pcall(function() node:SimulateLClick() end) -- the only native click in this module
+    local clicked=native_click(node)
     speak(clicked and (item.name .. ' activated.') or ('Could not activate ' .. item.name .. '.'))
     -- Re-read once even if the change is deeper than the panel watch (a list opening).
     if clicked then post_click=ticks+2 end
@@ -639,6 +805,19 @@ local function speak_current()
     browse(index==0 and 1 or 0,false)
 end
 local function key_action(action)
+    if menu then
+        if action=='next' or action=='previous' then menu_move(action=='next' and 1 or -1)
+        elseif action=='first' or action=='last' then menu.index=0; menu_move(action=='first' and 1 or -1)
+        elseif action=='activate' then menu_activate()
+        elseif #action==8 and action:sub(1,7)=='letter:' then
+            local letter=action:sub(8,8)
+            for offset=1,#menu.items do
+                local candidate=((menu.index-1+offset)%#menu.items)+1
+                if string.lower(menu.items[candidate].name:sub(1,1))==letter then menu.index=candidate-1; menu_move(1); return end
+            end
+        end
+        return
+    end
     if action=='next' or action=='previous' then
         if finished then browse(action=='next' and 1 or -1,false) else speak_current() end
     elseif action=='first' or action=='last' then
@@ -699,6 +878,7 @@ end
 local function tick()
     if not polling then return end
     tick_count=tick_count+1
+    local now=type(os.time)=='function' and os.time() or nil; if type(now)=='number' then last_tick_time=now end
     local ok,err=pcall(function()
         -- Capture work keeps its one-second pace; keys are polled every 100 ms
         -- while HUD reading is on.
@@ -755,7 +935,7 @@ core:add_listener('warhammer_campaign_discovery_first_tick','FirstTickAfterWorld
         if not real_timer or type(real_timer.register_singleshot)~='function' or type(real_timer.unregister)~='function' then error('Campaign real_timer unavailable') end
         polling=true
         core:add_listener(timer_name,'RealTimeTrigger',function(c) return c.string==timer_name end,tick,true)
-        emit('{"kind":"session","version":' .. quoted(version) .. ',"session":' .. quoted(session) .. ',"read_only":true,"scheduler":"real_timer"}')
+        emit('{"kind":"session","version":' .. quoted(version) .. ',"session":' .. quoted(session) .. ',"read_only":true,"scheduler":"real_timer","os_time":' .. tostring(type(os.time)=='function') .. '}')
         core:add_listener(watchdog_name,'RealTimeTrigger',function(c) return c.string==watchdog_name end,function()
             if not polling then return end
             pcall(function()
@@ -767,6 +947,17 @@ core:add_listener('warhammer_campaign_discovery_first_tick','FirstTickAfterWorld
             watchdog_seen=tick_count
             pcall(function() real_timer.register_singleshot(watchdog_name,3000) end)
         end,true)
+        for _,event in ipairs(rearm_events) do
+            core:add_listener('warhammer_campaign_readonly_rearm_' .. event,event,true,function()
+                if not polling then return end
+                local now=type(os.time)=='function' and os.time() or nil
+                if type(now)~='number' or now-last_tick_time<3 then return end
+                last_tick_time=now
+                pcall(function() real_timer.unregister(timer_name); real_timer.register_singleshot(timer_name,100) end)
+                pcall(function() real_timer.unregister(watchdog_name); real_timer.register_singleshot(watchdog_name,3000) end)
+                pcall(function() emit('{"kind":"timer-rearmed","source":' .. quoted(event) .. '}') end)
+            end,true)
+        end
         request_capture('first-tick');publish_status();real_timer.register_singleshot(timer_name,1000)
         real_timer.register_singleshot(watchdog_name,3000)
     end)
@@ -790,6 +981,7 @@ end,function(c)
             -- Also recovers a stopped reader timer.
             if polling then pcall(function() real_timer.unregister(timer_name); real_timer.register_singleshot(timer_name,reader_mode and 100 or 1000) end) end
         elseif c.string=='script_F4' then activate_current()
+        elseif menu then menu_move(c.string=='script_F2' and 1 or -1)
         elseif finished then browse(c.string=='script_F2' and 1 or -1,false)
         elseif phase~='waiting' and phase~='scanning' then request_capture('keyboard') end
         publish_status()
