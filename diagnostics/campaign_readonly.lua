@@ -711,7 +711,7 @@ local function read_upgrades()
                 local option={id=key,name=building_label(key),role='button',states={},units={},value='',description='',
                     key='upgrade:' .. key,live_state=state,node=building}
                 add_state(option,building_states[state] or '')
-                local cost=find_named(building,'dy_num_points_required',3)
+                local cost=state~='built' and find_named(building,'dy_num_points_required',3) or nil
                 if cost then
                     local _,amount=read(function() local v=cost:GetStateText(); return v end)
                     local _,cost_state=read(function() local v=cost:CurrentState(); return v end)
