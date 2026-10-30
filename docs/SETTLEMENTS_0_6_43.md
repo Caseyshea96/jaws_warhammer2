@@ -161,3 +161,34 @@ keys unverified.
   campaign (uncheck the introduction), campaign map keys (Shift+F2 for HUD
   reading), things to try (provinces, build, recruit, skip, end turn), what is
   not supported, and what to send back.
+
+## 0.6.52–0.6.55: armies read (no orders); timer restart fixed (accepted 0.6.55)
+
+Owner's answer "continue with whatever you think" was not taken as an unblock
+of army orders; this adds reading and selection only.
+- Lords & Heroes rows (`character_row_N`): "Tyrion, list item, Legendary Lord,
+  116 soldiers, faction leader, rank 1"; Enter selects the lord (the game zooms
+  to him and opens his army panel).
+- Army panel: the lord's name is a heading; unit cards (`LandUnit N`,
+  `NavalUnit N`) follow it as read-only items: "Spearmen, list item, Spear
+  Infantry, strength 30[, rank N]". Group members (buildings, unit cards) are
+  now placed after their heading even when they come first in the tree.
+- Timer restart: os.time() is useless in the game's single-precision numbers
+  (steps of ~2 minutes), so the 0.6.48 event restart could almost never fire.
+  It now uses os.clock() (logged `"os_clock":true`), falling back to "two
+  events with no tick between".
+- Harness: 51 campaign scenarios (+ units-before-heading order).
+
+Live: 0.6.54 — the reader stopped again right after selecting Tyrion (zoom),
+all timers silent; a hover and a click did not restart it (the os.time bug).
+0.6.55 — Lords & Heroes → Tyrion → "Screen updated." "Tyrion, heading", then
+the seven units in order, "Unit count, 7/20". No timer loss in that run, so
+the restart path is verified by the harness only. Evidence:
+`work/live-0.6.51-armies` (IDs), `work/live-0.6.54-armies`,
+`work/live-0.6.55-armies`.
+
+Open: why the game drops all of the mod's timer events after some zoom-to
+actions (about 1 in 3 runs) is unknown. A blind player who sits still has no
+event to restart it except a game shortcut (Shift+F3, physical keys only);
+whether ShortcutTriggered still arrives in that state is unverified.
+

@@ -536,8 +536,8 @@ assert(contents('bridge.jsonl'):find('Upgrades closed.',1,true))
 make=start('campaign',nil,1); begin(); for n=1,12 do tick(1) end
 pending=false; watchdog_pending=false
 fire('PanelOpenedCampaign',{}); assert(not pending,'No restart while ticks are recent')
-local real_time=os.time; os.time=function() return real_time()+60 end
-fire('PanelOpenedCampaign',{}); os.time=real_time
+local real_clock=os.clock; os.clock=function() return real_clock()+60 end
+fire('PanelOpenedCampaign',{}); os.clock=real_clock
 assert(pending and watchdog_pending,'Both timers restarted')
 assert(contents('native-ui-campaign-discovery.jsonl'):find('"source":"PanelOpenedCampaign"',1,true))
 -- 0.6.49: Recruit Lord panel: lord types are tabs, candidates list items
@@ -579,5 +579,44 @@ fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==1 and said()=
 function raise:CurrentState() return 'active' end
 fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==1 and said()=='Recruit? Press Enter again to confirm.',said())
 fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==2 and said()=='Recruit activated.',said())
+-- 0.6.52: Lords & Heroes rows and the army panel.
+make=start('campaign',nil,1); nodes.tree.count=5
+el('tree.child4','units_dropdown',1)
+el('tree.child4.child0','list_box',1)
+el('tree.child4.child0.child0','character_row_1',2,'','Left-click to zoom to this character.','unselected')
+el('tree.child4.child0.child0.child0','indent_parent',5)
+el('tree.child4.child0.child0.child0.child0','soldiers',0,'116')
+el('tree.child4.child0.child0.child0.child1','dy_character_name',0,'Tyrion','','normal')
+el('tree.child4.child0.child0.child0.child2','faction_leader',0,'','','leader')
+el('tree.child4.child0.child0.child0.child3','forces_icon',0,'','Legendary Lord','army')
+el('tree.child4.child0.child0.child0.child4','dy_rank',0,'1')
+el('tree.child4.child0.child0.child1','action_points',0)
+begin(); for n=1,12 do tick(1) end
+local tyrion=go('Tyrion')
+assert(starts(tyrion,'Tyrion, list item, Legendary Lord, ') and tyrion:find('faction leader',1,true) and tyrion:find('rank 1',1,true) and tyrion:find('116 soldiers',1,true),tyrion)
+assert(not contents('bridge.jsonl'):find('Left-click to zoom to this character',1,true),'Row hint folded in')
+fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==1 and said()=='Tyrion activated.',said())
+-- The army panel opens: the lord's name is a heading; unit cards are read only.
+el('tree.child5','units_panel',1); nodes.tree.count=6
+el('tree.child5.child0','main_units_panel',2)
+el('tree.child5.child0.child1','button_focus',1,'','Zoom to current selection')
+el('tree.child5.child0.child1.child0','dy_txt',0,'Tyrion')
+el('tree.child5.child0.child0','units',2)
+el('tree.child5.child0.child0.child0','LandUnit 0',2,'','Tyrion\nLegendary Lord||Left-click to select\nRight-click for further information','active')
+el('tree.child5.child0.child0.child0.child0','unit_category_icon',0,'','Sword Infantry')
+el('tree.child5.child0.child0.child0.child1','unit_strength_number',0,'1','','1')
+el('tree.child5.child0.child0.child1','LandUnit 1',3,'','Spearmen||Left-click to select\nRight-click for further information','active')
+el('tree.child5.child0.child0.child1.child0','unit_category_icon',0,'','Spear Infantry')
+el('tree.child5.child0.child0.child1.child1','unit_strength_number',0,'30','','1')
+el('tree.child5.child0.child0.child1.child2','experience',0,'','','2')
+for n=1,14 do tick(1) end
+assert(starts(said(),'Tyrion, heading, '),said())
+assert(starts(go('Tyrion Legendary Lord, list item'),'Tyrion Legendary Lord, list item, Sword Infantry, strength 1, '),said())
+go('Tyrion, heading'); fire('ShortcutTriggered',{string='script_F2'})
+assert(starts(said(),'Tyrion Legendary Lord, list item'),'Units follow the army heading: '..said())
+local spear=go('Spearmen')
+assert(starts(spear,'Spearmen, list item, Spear Infantry, strength 30, rank 2, '),spear)
+assert(not contents('bridge.jsonl'):find('Right-click for further information',1,true),'Card hint dropped')
+fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==1 and said()=='Not supported yet.','Unit cards are read only')
 io=saved_io;os.date=saved_date
 print('PASS: ' .. scenarios .. ' campaign diagnostic scenarios; HUD readiness, scoped discovery, typed failures, capture protocol, replay/generation/lease guards, limits, cancellation and zero clicks')

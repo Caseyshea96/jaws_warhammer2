@@ -56,8 +56,9 @@ When the map is ready you hear "Campaign map, N items." and the first item.
                       as normal ("Map controls.").
   Down / Up, Home/End, letters    move between items (HUD reading on)
   Enter               press the current button, tab, list item or building
-  Shift+F3            read the screen again (also wakes the reader if it
-                      ever goes silent)
+  Shift+F3            read the screen again. If the reader ever goes
+                      silent (keys do nothing), press Shift+F3; please
+                      tell us when that happens and what you had just done.
   F2 / F3 / F4        next / previous / activate, even with HUD reading off
 
 When a panel opens or closes you hear "Screen updated." and the reader moves
@@ -88,8 +89,14 @@ THINGS TO TRY (in a new campaign)
    each candidate is one item with cost and upkeep, and says why if you
    cannot afford them. Enter on a candidate selects it; then R to "Recruit,
    button" and Enter twice. (Moving the new army is not supported yet.)
-6. Notifications: S reaches "Skip, button" to skip the current notification.
-7. End turn: E reaches "End turn, button". Enter twice. If it says "End turn
+6. Your armies: press L until "Lords & Heroes, tab", Enter. Each lord is one
+   item: "Tyrion, list item, Legendary Lord, 116 soldiers, faction leader,
+   rank 1". Enter selects him (the camera goes to him) and reads his army:
+   "Tyrion, heading", then each unit, for example "Spearmen, list item,
+   Spear Infantry, strength 30", and "Unit count, 7/20". Moving him is not
+   supported yet.
+7. Notifications: S reaches "Skip, button" to skip the current notification.
+8. End turn: E reaches "End turn, button". Enter twice. If it says "End turn
    is unavailable", read its description: usually advice or a notification
    needs dismissing first. Ending a turn makes the game autosave.
 

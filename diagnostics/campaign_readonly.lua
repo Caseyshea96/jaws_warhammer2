@@ -26,7 +26,7 @@ local initial,owner,expiry,mode=read_flag()
 local diagnostic=initial~=nil
 if not diagnostic then owner,expiry,mode='player','9999-12-31T23:59:59Z','player' end
 local session='campaign:' .. owner .. ':' .. tostring({})
-local version='0.6.51'
+local version='0.6.55'
 local sequence,generation,bytes,run,attempts=0,1,0,0,0
 local phase,result,last_request='initialising','ready',''
 local queue,head,visited,page,entries,index={},1,0,0,{},0
@@ -40,7 +40,13 @@ local watchdog_name='warhammer_campaign_readonly_watchdog'
 local tick_count,watchdog_seen=0,-1
 -- Live, both timers once stopped together after a province zoom; game events
 -- that happen anyway (panels, clicks, selections, shortcuts) restart them.
-local last_tick_time=0
+-- os.time() (~1.8e9) is useless in the game's single-precision numbers (steps
+-- of about two minutes); os.clock() counts seconds since the game started.
+local last_tick_clock,event_seen_ticks=nil,-1
+local function game_seconds()
+    local ok,value=pcall(function() return os.clock() end)
+    if ok and type(value)=='number' then return value end
+end
 local rearm_events={'PanelOpenedCampaign','PanelClosedCampaign','ComponentLClickUp','ComponentMouseOn',
     'SettlementSelected','CharacterSelected','ShortcutTriggered'}
 local polling=false
@@ -223,7 +229,7 @@ local function role_of(id,parent)
         or (id:sub(1,7)=='toggle_' and 'toggle button') or (id=='3D_advisor_portrait' and 'button')
         or (id:sub(1,5)=='sort_' and 'button')
         or ((id=='dy_title' or id=='tx_title' or id=='tx_list_title' or id=='dy_province') and 'heading')
-        or ((id=='dy_txt' and parent=='header') and 'heading') or nil
+        or ((id=='dy_txt' and (parent=='header' or parent=='button_focus')) and 'heading') or nil
 end
 local function entry_role(entry) return entry.role or role_of(entry.id) end
 -- Stable across panels opening (child indices shift when a root panel is added).
@@ -234,6 +240,8 @@ local function composite_kind(id,ids,depth)
     if type(id)~='string' then return nil end
     if id:sub(1,10)=='row_entry_' then return 'row' end
     if id:sub(1,18)=='general_candidate_' then return 'candidate' end
+    if id:sub(1,14)=='character_row_' then return 'character' end
+    if id:match('^LandUnit %d+$') or id:match('^NavalUnit %d+$') then return 'unit' end
     local parent,grand=ids[depth-1],ids[depth-2]
     if parent=='list_box' then
         -- Lord types in the Recruit Lord panel (Legendary Lords, Prince, Princess).
@@ -259,6 +267,21 @@ local function add_state(entry,value)
     entry.states[#entry.states+1]=value
 end
 local function contribute(entry,id,name,tip_name,state,parent)
+    if entry.kind=='character' then
+        -- Lords & Heroes row: "Tyrion, list item, Legendary Lord, faction leader, rank 1, 116 soldiers".
+        if id=='dy_character_name' and name~='' then entry.name=name
+        elseif id=='forces_icon' and tip_name~='' then entry.value=tip_name
+        elseif id=='faction_leader' and state=='leader' then add_state(entry,'faction leader')
+        elseif id=='dy_rank' and name~='' then add_state(entry,'rank ' .. name)
+        elseif id=='soldiers' and name~='' then add_state(entry,name .. ' soldiers') end
+        return
+    elseif entry.kind=='unit' then
+        -- Army unit card: "Spearmen, list item, Spear Infantry, strength 30".
+        if id=='unit_category_icon' and tip_name~='' then entry.value=tip_name
+        elseif id=='unit_strength_number' and name~='' then add_state(entry,'strength ' .. name)
+        elseif id=='experience' and type(state)=='string' and state:match('^%d+$') and state~='0' then add_state(entry,'rank ' .. state) end
+        return
+    end
     local person=entry.kind=='candidate' or entry.kind=='lordtype'
     if person then
         if (id=='dy_name' or (id=='label' and entry.kind=='lordtype')) and name~='' then entry.name=name
@@ -288,23 +311,25 @@ end
 -- Reading order: each settlement's buildings right after its name; the
 -- minimap's settlement icons after everything else.
 local function arrange_entries()
-    local buildings,minimap,ordered={}, {}, {}
+    -- Group members (a settlement's buildings, an army's unit cards) are read
+    -- right after their heading, wherever they sit in the tree.
+    local function member(entry) return entry.settlement or entry.group_key end
+    local groups,headed,minimap,ordered={}, {}, {}, {}
     for _,entry in ipairs(entries) do
-        if entry.settlement then
-            buildings[entry.settlement]=buildings[entry.settlement] or {}
-            local list=buildings[entry.settlement]; list[#list+1]=entry
-        end
+        local key=member(entry)
+        if key then groups[key]=groups[key] or {}; local list=groups[key]; list[#list+1]=entry end
+        local heading=entry.settlement_heading or entry.group_heading
+        if heading then headed[heading]=true end
     end
-    local placed={}
     for _,entry in ipairs(entries) do
+        local own=member(entry)
         if entry.idpath and ('/' .. entry.idpath):match('/radar/') then minimap[#minimap+1]=entry
-        elseif not (entry.settlement and placed[entry.settlement]) then
-            if not entry.settlement then ordered[#ordered+1]=entry end
-            local key=entry.settlement_heading or entry.settlement
-            if key and buildings[key] and not placed[key] then
-                if entry.settlement then ordered[#ordered+1]=entry end -- no heading: keep them where they were
-                placed[key]=true
-                for _,building in ipairs(buildings[key]) do if building~=entry then ordered[#ordered+1]=building end end
+        elseif not (own and headed[own]) then
+            ordered[#ordered+1]=entry -- a member without a heading stays where it is
+            local heading=entry.settlement_heading or entry.group_heading
+            if heading and groups[heading] and headed[heading]~='placed' then
+                headed[heading]='placed'
+                for _,other in ipairs(groups[heading]) do ordered[#ordered+1]=other end
             end
         end
     end
@@ -440,6 +465,9 @@ local function page_read()
                             for position=3,#lines do local part=clean(lines[position]); if part~='' then reason[#reason+1]=part end end
                             entry.description=table.concat(reason,'. ')
                         end
+                    elseif kind=='character' then entry.role='list item'; entry.name=''
+                    elseif kind=='unit' then
+                        entry.role='list item'; entry.name=tip_name; entry.read_only=true; entry.group_key='army'
                     elseif kind=='lordtype' then
                         entry.role='tab'; entry.name=(id:gsub('_',' '))
                         if state=='selected' then add_state(entry,'selected') end
@@ -482,7 +510,8 @@ local function page_read()
                     else entries[#entries+1]={key='campaign:' .. item.label .. ':' .. (name~='' and 'text' or 'tooltip'),
                         name=entry_name,value=value,description=description,id=id,path=item.path,ids=item.ids,
                         role=role_of(id,parent),idpath=table.concat(item.ids,'/') .. '/' .. id,
-                        settlement_heading=(id=='dy_province') and strip_levels(item.label,2) or nil} end
+                        settlement_heading=(id=='dy_province') and strip_levels(item.label,2) or nil,
+                        group_heading=(id=='dy_txt' and parent=='button_focus' and ('/' .. table.concat(item.ids,'/')):match('/units_panel/')) and 'army' or nil} end
                 end
                 if #item.path>=16 and count>0 then limit('depth-budget',item.label,#item.path)
                 else
@@ -783,7 +812,7 @@ local function activate_current()
     local item=entries[index]
     local id=type(item.id)=='string' and item.id or ''
     local role=entry_role(item)
-    if not activatable[role] or (role=='button' and id:sub(1,5)=='sort_') then speak('Not supported yet.'); return end
+    if not activatable[role] or item.read_only or (role=='button' and id:sub(1,5)=='sort_') then speak('Not supported yet.'); return end
     local node=fresh_node(item); if not node then return end
     if item.settlement then open_upgrades(item,node); return end
     if (item.confirm or needs_confirmation(id)) and not (pending_confirm and pending_confirm.key==item.key and ticks<=pending_confirm.until_tick) then
@@ -878,7 +907,7 @@ end
 local function tick()
     if not polling then return end
     tick_count=tick_count+1
-    local now=type(os.time)=='function' and os.time() or nil; if type(now)=='number' then last_tick_time=now end
+    last_tick_clock=game_seconds()
     local ok,err=pcall(function()
         -- Capture work keeps its one-second pace; keys are polled every 100 ms
         -- while HUD reading is on.
@@ -935,7 +964,7 @@ core:add_listener('warhammer_campaign_discovery_first_tick','FirstTickAfterWorld
         if not real_timer or type(real_timer.register_singleshot)~='function' or type(real_timer.unregister)~='function' then error('Campaign real_timer unavailable') end
         polling=true
         core:add_listener(timer_name,'RealTimeTrigger',function(c) return c.string==timer_name end,tick,true)
-        emit('{"kind":"session","version":' .. quoted(version) .. ',"session":' .. quoted(session) .. ',"read_only":true,"scheduler":"real_timer","os_time":' .. tostring(type(os.time)=='function') .. '}')
+        emit('{"kind":"session","version":' .. quoted(version) .. ',"session":' .. quoted(session) .. ',"read_only":true,"scheduler":"real_timer","os_clock":' .. tostring(game_seconds()~=nil) .. '}')
         core:add_listener(watchdog_name,'RealTimeTrigger',function(c) return c.string==watchdog_name end,function()
             if not polling then return end
             pcall(function()
@@ -950,9 +979,13 @@ core:add_listener('warhammer_campaign_discovery_first_tick','FirstTickAfterWorld
         for _,event in ipairs(rearm_events) do
             core:add_listener('warhammer_campaign_readonly_rearm_' .. event,event,true,function()
                 if not polling then return end
-                local now=type(os.time)=='function' and os.time() or nil
-                if type(now)~='number' or now-last_tick_time<3 then return end
-                last_tick_time=now
+                local now=game_seconds()
+                local stalled
+                if now and last_tick_clock then stalled=now-last_tick_clock>=2
+                else stalled=tick_count==event_seen_ticks end -- no clock: two events with no tick between
+                event_seen_ticks=tick_count
+                if not stalled then return end
+                last_tick_clock=now
                 pcall(function() real_timer.unregister(timer_name); real_timer.register_singleshot(timer_name,100) end)
                 pcall(function() real_timer.unregister(watchdog_name); real_timer.register_singleshot(watchdog_name,3000) end)
                 pcall(function() emit('{"kind":"timer-rearmed","source":' .. quoted(event) .. '}') end)
