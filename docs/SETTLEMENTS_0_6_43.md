@@ -192,3 +192,41 @@ actions (about 1 in 3 runs) is unknown. A blind player who sits still has no
 event to restart it except a game shortcut (Shift+F3, physical keys only);
 whether ShortcutTriggered still arrives in that state is unverified.
 
+## 0.6.56–0.6.58: the silent reader (accepted 0.6.58)
+
+Symptom: after some camera jumps (Enter on a province or lord row) and during
+some opening flyovers, the reader went silent for good. In the flyover case the
+game's own flyover froze on one frame too (game responding, CPU busy), so the
+game's script timers stopped together with the mod's.
+
+Findings:
+- Not the log budget, not a Lua error (none logged), not window focus (focusing
+  or clicking the game did not resume it).
+- With the campaign reader switched off (test-only `campaign-reader-off.flag`
+  in %LOCALAPPDATA%\JawsWarhammer2), 4 of 4 campaign starts finished the
+  flyover (`work/flyover-compare/off-1..4`). With the reader on, about 2 of 18
+  earlier starts froze. Suggestive, not conclusive on its own.
+- The reader re-registered its next single-shot `real_timer` from inside the
+  timer callback, every tick. The game's own campaign scripts never use
+  `real_timer` (they use model callbacks). Likely cause: registering a timer
+  while the game is dispatching timers occasionally wipes the timer list,
+  which also stops the game's scripted flyover camera.
+
+Fix (0.6.57): the game offers `real_timer.register_repeating` (logged
+`"timer":"repeating"`), so one 100 ms repeating timer and one 3 s watchdog are
+registered once at start; nothing is registered from inside a callback (slow
+work runs every tenth tick). Recovery paths (watchdog, game events, Shift+F3)
+restart it only when ticks have stopped. Single-shot remains as a fallback.
+0.6.58: the developer log restarts at 1 MiB like the player log (the 2 MiB cap
+would otherwise stop long test sessions).
+
+Live: 0.6.57 — two fresh sessions, two flyovers and 20 camera jumps
+(`tools/live/Zoom-Stress.ps1`), no silence, no restart needed
+(`work/live-0.6.57-timer`, `work/live-0.6.57-timer-2`). The old build went
+silent after roughly one jump in five to eight. 0.6.58 — flyover plus two jumps
+(`work/live-0.6.58-check`). Harness: 52 campaign scenarios (+ repeating timer
+registered once, never from a callback).
+
+Still possible but not seen since: if it ever happens, Shift+F3 (physical key)
+restarts the reader; the friend's guide asks him to report it.
+

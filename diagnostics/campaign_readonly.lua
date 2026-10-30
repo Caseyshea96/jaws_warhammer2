@@ -5,6 +5,8 @@ if not core:is_campaign() or core:is_battle() then return end
 local base=os.getenv('LOCALAPPDATA')
 if type(base)~='string' or base=='' then return end
 base=base .. '/JawsWarhammer2/'
+-- Test-only switch for comparing the game with and without the campaign reader.
+do local off=io.open(base .. 'campaign-reader-off.flag','r'); if off then off:close(); return end end
 local function utc() return os.date('!%Y-%m-%dT%H:%M:%SZ') end
 local function stamp(value)
     return type(value)=='string' and value:match('^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%dZ$')~=nil
@@ -26,7 +28,7 @@ local initial,owner,expiry,mode=read_flag()
 local diagnostic=initial~=nil
 if not diagnostic then owner,expiry,mode='player','9999-12-31T23:59:59Z','player' end
 local session='campaign:' .. owner .. ':' .. tostring({})
-local version='0.6.55'
+local version='0.6.58'
 local sequence,generation,bytes,run,attempts=0,1,0,0,0
 local phase,result,last_request='initialising','ready',''
 local queue,head,visited,page,entries,index={},1,0,0,{},0
@@ -38,6 +40,17 @@ local timer_name='warhammer_campaign_readonly_tick'
 -- silent mid-scan, no error). A second timer re-arms it when ticks stop.
 local watchdog_name='warhammer_campaign_readonly_watchdog'
 local tick_count,watchdog_seen=0,-1
+-- Live, the game's own flyover froze together with the reader's timers. The
+-- reader used to register its next single-shot timer from inside the timer
+-- callback; when the game offers a repeating timer, one is registered once
+-- (100 ms) and nothing is registered from inside a callback.
+local repeating=false
+local function restart_reader_timer()
+    pcall(function() real_timer.unregister(timer_name) end)
+    pcall(function()
+        if repeating then real_timer.register_repeating(timer_name,100) else real_timer.register_singleshot(timer_name,100) end
+    end)
+end
 -- Live, both timers once stopped together after a province zoom; game events
 -- that happen anyway (panels, clicks, selections, shortcuts) restart them.
 -- os.time() (~1.8e9) is useless in the game's single-precision numbers (steps
@@ -585,8 +598,8 @@ request_capture=function(source)
     -- automatic re-reads after screen changes do not count against it.
     if diagnostic and source=='read-only-client' and client_captures>=3 then result='capture-limit';return false end
     if source=='read-only-client' or source=='first-tick' then client_captures=client_captures+1 end
-    -- Players can re-read for a whole session: start the log over when large.
-    if not diagnostic and bytes>1048576 then bytes=0 end
+    -- Re-reads can go on for a whole session: start the log over when large.
+    if bytes>1048576 then bytes=0 end
     attempts=attempts+1;generation=generation+1;phase='waiting';result='accepted'
     entries={};queue={};index=0;head=1;visited=0;page=0;errors=0;limited=false;finished=false
     settlement_names={};post_click=nil
@@ -912,7 +925,9 @@ local function tick()
         -- Capture work keeps its one-second pace; keys are polled every 100 ms
         -- while HUD reading is on.
         fast_ticks=fast_ticks+1
-        if not reader_mode or auto_reader or fast_ticks>=10 then
+        local slow
+        if repeating then slow=fast_ticks>=10 else slow=not reader_mode or auto_reader or fast_ticks>=10 end
+        if slow then
             fast_ticks=0
             ticks=ticks+1
             if not lease_active() or (diagnostic and ticks>1800) then stop('lease-ended');publish_status();return end
@@ -951,7 +966,7 @@ local function tick()
         end
         if reader_mode then poll_keys() end
         publish_reader_state(false)
-        if polling then real_timer.register_singleshot(timer_name,(reader_mode and not auto_reader) and 100 or 1000) end
+        if polling and not repeating then real_timer.register_singleshot(timer_name,(reader_mode and not auto_reader) and 100 or 1000) end
     end)
     if not ok then
         stop('diagnostic-error');phase='error'
@@ -963,18 +978,19 @@ core:add_listener('warhammer_campaign_discovery_first_tick','FirstTickAfterWorld
         if polling then return end
         if not real_timer or type(real_timer.register_singleshot)~='function' or type(real_timer.unregister)~='function' then error('Campaign real_timer unavailable') end
         polling=true
+        repeating=type(real_timer.register_repeating)=='function'
         core:add_listener(timer_name,'RealTimeTrigger',function(c) return c.string==timer_name end,tick,true)
-        emit('{"kind":"session","version":' .. quoted(version) .. ',"session":' .. quoted(session) .. ',"read_only":true,"scheduler":"real_timer","os_clock":' .. tostring(game_seconds()~=nil) .. '}')
+        emit('{"kind":"session","version":' .. quoted(version) .. ',"session":' .. quoted(session) .. ',"read_only":true,"scheduler":"real_timer","os_clock":' .. tostring(game_seconds()~=nil) .. ',"timer":' .. quoted(repeating and 'repeating' or 'singleshot') .. '}')
         core:add_listener(watchdog_name,'RealTimeTrigger',function(c) return c.string==watchdog_name end,function()
             if not polling then return end
             pcall(function()
                 if tick_count==watchdog_seen then
-                    real_timer.unregister(timer_name); real_timer.register_singleshot(timer_name,100)
+                    restart_reader_timer()
                     emit('{"kind":"timer-rearmed","ticks":' .. tick_count .. '}')
                 end
             end)
             watchdog_seen=tick_count
-            pcall(function() real_timer.register_singleshot(watchdog_name,3000) end)
+            if not repeating then pcall(function() real_timer.register_singleshot(watchdog_name,3000) end) end
         end,true)
         for _,event in ipairs(rearm_events) do
             core:add_listener('warhammer_campaign_readonly_rearm_' .. event,event,true,function()
@@ -986,13 +1002,17 @@ core:add_listener('warhammer_campaign_discovery_first_tick','FirstTickAfterWorld
                 event_seen_ticks=tick_count
                 if not stalled then return end
                 last_tick_clock=now
-                pcall(function() real_timer.unregister(timer_name); real_timer.register_singleshot(timer_name,100) end)
-                pcall(function() real_timer.unregister(watchdog_name); real_timer.register_singleshot(watchdog_name,3000) end)
+                restart_reader_timer()
+                pcall(function()
+                    real_timer.unregister(watchdog_name)
+                    if repeating then real_timer.register_repeating(watchdog_name,3000) else real_timer.register_singleshot(watchdog_name,3000) end
+                end)
                 pcall(function() emit('{"kind":"timer-rearmed","source":' .. quoted(event) .. '}') end)
             end,true)
         end
-        request_capture('first-tick');publish_status();real_timer.register_singleshot(timer_name,1000)
-        real_timer.register_singleshot(watchdog_name,3000)
+        request_capture('first-tick');publish_status()
+        if repeating then real_timer.register_repeating(timer_name,100); real_timer.register_repeating(watchdog_name,3000)
+        else real_timer.register_singleshot(timer_name,1000); real_timer.register_singleshot(watchdog_name,3000) end
     end)
     if not ok then stop('scheduler-error');phase='error';pcall(function() emit('{"kind":"error","detail":' .. quoted(type(err)=='string' and err or type(err)) .. '}');publish_status() end) end
 end,false)
@@ -1008,11 +1028,12 @@ end,function(c)
             publish_reader_state(true)
             speak(reader_mode and 'Reading HUD.' or 'Map controls.')
             if reader_mode then speak_current() end
-            if polling then pcall(function() real_timer.unregister(timer_name); real_timer.register_singleshot(timer_name,reader_mode and 100 or 1000) end) end
+            if polling and not repeating then pcall(function() real_timer.unregister(timer_name); real_timer.register_singleshot(timer_name,reader_mode and 100 or 1000) end) end
         elseif c.string=='script_shift_F3' then
             if phase~='waiting' and phase~='scanning' then request_capture('keyboard-refresh') end
             -- Also recovers a stopped reader timer.
-            if polling then pcall(function() real_timer.unregister(timer_name); real_timer.register_singleshot(timer_name,reader_mode and 100 or 1000) end) end
+            local now=game_seconds()
+            if polling and (not repeating or not now or not last_tick_clock or now-last_tick_clock>=2) then restart_reader_timer() end
         elseif c.string=='script_F4' then activate_current()
         elseif menu then menu_move(c.string=='script_F2' and 1 or -1)
         elseif finished then browse(c.string=='script_F2' and 1 or -1,false)

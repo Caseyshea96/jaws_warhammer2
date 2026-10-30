@@ -24,7 +24,7 @@ left intact. Paths like `work/live-0.6.17-lord-discovery` in the docs resolve he
 ## Current state — read before working
 
 - `docs/AUTOMATION_SESSION.md` — full session history and current stop point.
-- `docs/SETTLEMENTS_0_6_43.md` — latest: provinces, settlement panel, building and recruiting by keyboard, intro check box, player guide, armies read (accepted 0.6.55).
+- `docs/SETTLEMENTS_0_6_43.md` — latest: provinces, settlement panel, building and recruiting by keyboard, intro check box, player guide, armies read, silent-reader fix (accepted 0.6.58).
 - `docs/CAMPAIGN_BUTTONS_0_6_39.md` — HUD buttons, End Turn, first turn by keyboard (0.6.38–0.6.42).
 - `docs/CAMPAIGN_DISCOVERY_0_6_31.md` — owner-requested stop; candidate offline checks passed, live gates pending.
 - `docs/CAMPAIGN_DISCOVERY_0_6_30.md` — latest live result: partial campaign capture; 0.6.28 restored.
@@ -44,6 +44,8 @@ and fresh capture still require live verification. See the 0.6.31 handoff.
 Previous 0.6.30 captured early with read/type issues; 0.6.15–0.6.17 are failed
 candidates. Preserve existing rollback archives and do not auto-start another
 campaign under the earlier consumed one-campaign approval.
+
+**Never register a `real_timer` from inside a timer callback** (it froze the game's timers); use one repeating timer.
 
 **Never call `string.find` in the runtime.** In WH2 the plain form returns nil
 for a match and then makes `string.sub` return numbers (confirmed live). Use
@@ -95,6 +97,9 @@ folder and TWMM's profile are untouched; `-WithIntro` plays them. Without the
 skip the endpoint reports ready while the movies are still playing (menu ~8 s
 later), so always confirm the main menu on screen. `Watch-Startup.ps1` records
 startup screenshots.
+`Flyover-Run.ps1` (one timed campaign start + screenshot) and `Zoom-Stress.ps1` (repeated
+camera jumps, checks the reader keeps ticking) test the silent-reader fix;
+`campaign-reader-off.flag` in %LOCALAPPDATA%\JawsWarhammer2 switches the campaign reader off for comparisons.
 `Click-Screen -X -Y [-MoveOnly]` stands in for a user's mouse (physical pixels =
 Capture-Screen pixels x2). Never click Start Campaign or the intro-content
 notice's confirm button, which overlaps it.
@@ -167,7 +172,7 @@ authorized scope.
 - Verify each major transition before continuing.
 - Never repeatedly click a control without checking the resulting state.
 - If the same launch step fails twice, investigate rather than retrying blindly.
-- Preserve the last known working build (0.6.55; before it 0.6.51) as the rollback.
+- Preserve the last known working build (0.6.58; before it 0.6.55) as the rollback.
 - Do not delete game saves or unrelated configuration files.
 - Distinguish launcher failures, mod-loading failures, game crashes, and
   accessibility integration failures.

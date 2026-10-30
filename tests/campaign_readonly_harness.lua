@@ -618,5 +618,20 @@ local spear=go('Spearmen')
 assert(starts(spear,'Spearmen, list item, Spear Infantry, strength 30, rank 2, '),spear)
 assert(not contents('bridge.jsonl'):find('Right-click for further information',1,true),'Card hint dropped')
 fire('ShortcutTriggered',{string='script_F4'}); assert(dispatches==1 and said()=='Not supported yet.','Unit cards are read only')
+-- 0.6.57: with a repeating game timer, it is registered once and never from
+-- inside a timer callback; the slow work still runs once a second.
+make=start('campaign',nil,1)
+local registrations,repeat_name={},nil
+real_timer.register_singleshot=function(name,delay) registrations[#registrations+1]='single:' .. name end
+real_timer.register_repeating=function(name,delay) registrations[#registrations+1]='repeat:' .. name .. ':' .. delay end
+begin()
+assert(#registrations==2 and registrations[1]=='repeat:warhammer_campaign_readonly_tick:100'
+    and registrations[2]=='repeat:warhammer_campaign_readonly_watchdog:3000',table.concat(registrations,' '))
+assert(contents('native-ui-campaign-discovery.jsonl'):find('"timer":"repeating"',1,true))
+for n=1,150 do fire('RealTimeTrigger',{string=timer}) end
+assert(#registrations==2,'Nothing registered from inside a callback: ' .. table.concat(registrations,' '))
+assert(contents('bridge.jsonl'):find('Campaign map, ',1,true),'Slow work ran on the 100 ms timer')
+fire('ShortcutTriggered',{string='script_shift_F2'}); fire('ShortcutTriggered',{string='script_shift_F2'})
+assert(#registrations==2,'Reading mode does not re-register')
 io=saved_io;os.date=saved_date
 print('PASS: ' .. scenarios .. ' campaign diagnostic scenarios; HUD readiness, scoped discovery, typed failures, capture protocol, replay/generation/lease guards, limits, cancellation and zero clicks')
