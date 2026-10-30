@@ -345,7 +345,7 @@ for _, base in ipairs(bases) do
     local path = base .. 'native-ui-graphics-preview.log'
     local f = io.open(path, 'w')
     if f then
-        local header = 'WH2 native UI diagnostic 0.6.59-nvda-automation-preview\n'
+        local header = 'WH2 native UI diagnostic 0.6.60-nvda-automation-preview\n'
         f:write(header); f:close(); log_bytes = #header + 1
         log_path = path; bridge_path = base .. (base == '' and 'jaws_access.jsonl' or 'bridge.jsonl')
         local bridge = io.open(bridge_path, 'w'); if bridge then bridge:close() end
@@ -451,37 +451,24 @@ local function captured_text(prefix, id)
     if not visible_id(prefix, id) then return '' end
     return clean(captured_value(prefix, 'GetStateText'))
 end
--- Both native captures differ only in empty smoke-particle visibility and
--- an extra hidden Tooltip root child. Neither is an input target. Everything
--- named remains in the exact activation template and raw fingerprint.
+-- Select Campaign: the shell around the campaign list (0.6.60: tolerant of
+-- other PCs; activation checks the Continue button itself).
 local campaign_entries = 'tree.child2.child0.child1'
 local campaign_continue_key = 'tree.child2.child2.child0'
-local function campaign_shell_supported()
+-- 0.6.60: other PCs add root children (news browser, tooltips); only a
+-- visible or unreadable extra panel (a dialog on top) blocks.
+local function no_extra_panel()
     local count = captured_value('tree', 'ChildCount')
-    if count ~= 5 and count ~= 6 then return false end
-    if count == 6 and (captured_value('tree.child5', 'Id') ~= 'Tooltip'
-        or captured_value('tree.child5', 'Visible') ~= false
-        or captured_value('tree.child5', 'IsInteractive') ~= false) then return false end
-    local particle_parent = campaign_entries .. '.child0.child0.child1.child'
-    for name, read in pairs(scan_reads) do
-        if name:sub(-3) == '.Id' and read.ok then
-            local prefix = name:sub(1,-4)
-            local index = tonumber(prefix:sub(#particle_parent+1))
-            local particle = prefix:sub(1,#particle_parent) == particle_parent and index and index >= 1
-            if read.value == '' or particle then
-                if read.value ~= '' or prefix:sub(1,#particle_parent) ~= particle_parent or not index
-                    or index < 1 or index > 60 or index % 1 ~= 0
-                    or captured_value(prefix,'IsInteractive') ~= false
-                    or captured_value(prefix,'ChildCount') ~= 0
-                    or captured_value(prefix,'GetStateText') ~= ''
-                    or captured_value(prefix,'GetTooltipText') ~= ''
-                    or captured_value(prefix,'CurrentState') ~= 'NewState'
-                    or type(captured_value(prefix,'Visible')) ~= 'boolean' then return false end
-            end
-        end
+    if type(count) ~= 'number' or count < 5 then return false end
+    for index = 5, count - 1 do
+        local prefix = 'tree.child' .. index
+        local id, visible = captured_value(prefix, 'Id'), captured_value(prefix, 'Visible')
+        if type(id) ~= 'string' or type(visible) ~= 'boolean' then return false end
+        if visible and id ~= 'Tooltip' and id ~= 'browser' then return false end
     end
     return true
 end
+local function campaign_shell_supported() return no_extra_panel() end
 local function scope_campaign_controls()
     controls = {}
     screen_kind = 'campaign_overlay'
@@ -1155,8 +1142,170 @@ local function send_click(node, name)
     node:SimulateLClick()
     log('activation.returned', true)
 end
+-- Main menu and Select Campaign (0.6.60): menus differ between PCs (DLC,
+-- saves, news banner, language), so no whole-screen template. The selected
+-- button is clicked when its ID is allowed and, read again now, it is the same
+-- element: same IDs and addresses on its path, visible, same label, interactive
+-- and active.
+local player_targets = {
+    main = {button_new_campaign = 'New Campaign', button_start_campaign = 'Continue Campaign', button_graphics = 'Graphics'},
+    campaign_selection = {button_next = 'Continue'}
+}
+local function path_reads(key)
+    local function value(prefix, method)
+        local read = scan_reads[prefix .. '.' .. method]
+        if read and read.ok then return read.value end
+    end
+    -- Split "tree.child2.child1" without pattern searches.
+    local indices, digits, at = {}, nil, 1
+    while at <= #key do
+        if string.sub(key, at, at + 5) == '.child' then
+            if digits then indices[#indices + 1] = tonumber(digits) end
+            digits = ''; at = at + 6
+        else
+            if digits then digits = digits .. string.sub(key, at, at) end
+            at = at + 1
+        end
+    end
+    if digits and digits ~= '' then indices[#indices + 1] = tonumber(digits) end
+    local steps, prefix = {{prefix = 'tree', id = value('tree', 'Id'), address = tostring(value('tree', 'Address')), visible = value('tree', 'Visible')}}, 'tree'
+    for _, index in ipairs(indices) do
+        prefix = prefix .. '.child' .. index
+        steps[#steps + 1] = {prefix = prefix, index = index, id = value(prefix, 'Id'),
+            address = tostring(value(prefix, 'Address')), visible = value(prefix, 'Visible')}
+    end
+    for _, step in ipairs(steps) do
+        -- Every read on the path must have succeeded with the right type.
+        local address = value(step.prefix, 'Address')
+        step.readable = type(step.id) == 'string' and type(step.visible) == 'boolean'
+            and type(value(step.prefix, 'ChildCount')) == 'number' and type(value(step.prefix, 'IsInteractive')) == 'boolean'
+            and type(value(step.prefix, 'GetStateText')) == 'string' and type(value(step.prefix, 'GetTooltipText')) == 'string'
+            and type(value(step.prefix, 'CurrentState')) == 'string'
+            and (type(address) == 'userdata' or (type(address) == 'string' and address ~= '') or (type(address) == 'number' and address == address and address > 0))
+    end
+    local leaf = {text = value(key, 'GetStateText'), tip = value(key, 'GetTooltipText'),
+        state = value(key, 'CurrentState'), interactive = value(key, 'IsInteractive')}
+    return steps, leaf, prefix == key
+end
+-- Everything read from the screen, to compare the read at selection with the
+-- read at activation (never with a recording from another PC): a panel
+-- appearing (a DLC purchase panel beside Continue), a changed selection or
+-- title cancels. Left out: visibility of unnamed particle effects (they
+-- flicker), the contents of the tooltip and news layers, and per-read wrapper
+-- objects (Find/Convert/root lookups).
+local volatile_methods = {Find = true, Convert = true, object = true}
+local function shown_signature()
+    local function split(name)
+        for at = #name, 1, -1 do
+            if string.byte(name, at) == 46 then return string.sub(name, 1, at - 1), string.sub(name, at + 1) end
+        end
+        return name, ''
+    end
+    local function root_child(prefix)
+        if string.sub(prefix, 1, 10) ~= 'tree.child' then return nil end
+        local at = 11
+        while at <= #prefix and string.byte(prefix, at) ~= 46 do at = at + 1 end
+        return string.sub(prefix, 1, at - 1)
+    end
+    local parts = {}
+    for name, read in pairs(scan_reads) do
+        local prefix, method = split(name)
+        local keep = string.sub(name, 1, 4) == 'tree' and not volatile_methods[method]
+        if keep and method == 'Visible' then
+            local id = scan_reads[prefix .. '.Id']
+            if id and id.ok and id.value == '' then keep = false end
+        end
+        local top = keep and root_child(prefix)
+        if top then
+            local id = scan_reads[top .. '.Id']
+            local layer = id and id.ok and (id.value == 'Tooltip' or id.value == 'browser')
+            -- The layer's own caption follows the pointer; its contents too.
+            if layer and (top ~= prefix or method == 'GetStateText') then keep = false end
+        end
+        if keep then parts[#parts + 1] = name .. '=' .. tostring(read.ok) .. ':' .. type(read.value) .. ':' .. tostring(read.value) end
+    end
+    table.sort(parts)
+    return table.concat(parts, '|')
+end
+local function same_element(before_steps, before_leaf, after_steps, after_leaf)
+    if #after_steps ~= #before_steps then return false end
+    for i, step in ipairs(before_steps) do
+        local now = after_steps[i]
+        if not step.readable or not now.readable or now.id ~= step.id or now.address ~= step.address or now.visible ~= true then return false end
+    end
+    return type(before_leaf.text) == 'string' and type(before_leaf.tip) == 'string'
+        and after_leaf.text == before_leaf.text and after_leaf.tip == before_leaf.tip
+        and after_leaf.state == 'active' and after_leaf.interactive == true
+end
+local function resolve_element(steps, leaf)
+    if core:is_campaign() or core:is_battle() or not core:is_ui_created() then error('Frontend UI is not ready') end
+    local ok, node = observe('activation.root', function() local v = core:get_ui_root(); return v end)
+    if not ok or not node then error('Fresh UI root unavailable') end
+    for i, step in ipairs(steps) do
+        if i > 1 then
+            local found, address = observe('activation.' .. step.prefix .. '.Find', function() local v = node:Find(step.index); return v end)
+            if not found or not address then error('UI path changed') end
+            local converted, child = observe('activation.' .. step.prefix .. '.Convert', function() local v = UIComponent(address); return v end)
+            if not converted or not child then error('UI conversion failed') end
+            node = child
+        end
+        local id_ok, id = observe('activation.' .. step.prefix .. '.Id', function() local v = node:Id(); return v end)
+        local visible_ok, visible = observe('activation.' .. step.prefix .. '.Visible', function() local v = node:Visible(true); return v end)
+        local address_ok, address = observe('activation.' .. step.prefix .. '.Address', function() local v = node:Address(); return v end)
+        if not id_ok or id ~= step.id or not visible_ok or visible ~= true or not address_ok or tostring(address) ~= step.address then
+            error('UI identity or visibility changed')
+        end
+    end
+    local interactive_ok, interactive = observe('activation.leaf.IsInteractive', function() local v = node:IsInteractive(); return v end)
+    local state_ok, state = observe('activation.leaf.CurrentState', function() local v = node:CurrentState(); return v end)
+    local text_ok, text = observe('activation.leaf.GetStateText', function() local v = node:GetStateText(); return v end)
+    local tip_ok, tip = observe('activation.leaf.GetTooltipText', function() local v = node:GetTooltipText(); return v end)
+    if not interactive_ok or interactive ~= true or not state_ok or state ~= 'active'
+        or not text_ok or text ~= leaf.text or not tip_ok or tip ~= leaf.tip then error('Button state or label changed') end
+    return node
+end
+local function activate_player_target(item)
+    local before_steps, before_leaf, complete = path_reads(item.key)
+    local leaf_id = before_steps[#before_steps].id
+    local name = player_targets[screen_kind] and player_targets[screen_kind][leaf_id]
+    if not complete or not name then cancel(); speak('Not supported yet.'); return end
+    if before_leaf.state ~= 'active' or before_leaf.interactive ~= true then cancel(); speak(name .. ' is unavailable.'); return end
+    if not no_extra_panel() then cancel(); speak('Could not read this screen. Press F2 and try again.'); return end
+    local kind, selected_index, selected_generation = screen_kind, control_index, generation
+    local before_shown = shown_signature()
+    log('activation.player_target', leaf_id)
+    capture('F4 revalidation')
+    local after_steps, after_leaf = path_reads(item.key)
+    if screen_kind ~= kind or generation ~= selected_generation or not no_extra_panel() or shown_signature() ~= before_shown
+        or not same_element(before_steps, before_leaf, after_steps, after_leaf) then
+        invalidate(); speak('The screen changed. Press F2 and try again.'); return
+    end
+    control_index = selected_index
+    local node = resolve_element(after_steps, after_leaf)
+    if confirm_activations then
+        local now = clock_value()
+        if pending and (now < pending.armed_at or now > pending.deadline) then
+            cancel(); speak('Confirmation timed out. Press again.'); return
+        end
+        if not pending then
+            pending = {target = item.key, armed_at = now, deadline = now + 4, generation = generation, origin = activation_origin}
+            activation_outcome = 'armed'
+            log('activation.armed', now)
+            speak(name .. '. Press again to confirm.'); return
+        end
+        if pending.target ~= item.key or pending.generation ~= generation then
+            invalidate(); speak('Cancelled: the screen changed.'); return
+        end
+    end
+    if log_failed then invalidate(); speak('Accessibility log unavailable. Restart the game.'); return end
+    send_click(node, name)
+    speak(name .. ' activated.')
+end
 local function activate_control()
     if screen_kind == 'graphics_advanced' or screen_kind == 'graphics_advanced_overlay' then cancel(); speak('Not supported yet.'); return end
+    if (screen_kind == 'main' or screen_kind == 'campaign_selection') and captured and controls[control_index] then
+        activate_player_target(controls[control_index]); return
+    end
     if screen_kind == 'campaign_overlay' then cancel(); speak('Not supported yet.'); return end
     local item = controls[control_index]
     if screen_kind == 'campaign_selection' and (not item or item.key ~= campaign_continue_key) then cancel(); speak('Not supported yet.'); return end
@@ -1873,7 +2022,7 @@ local function publish_status()
     if #label > 800 then label = label:sub(1,800):gsub('[\192-\255][\128-\191]*$','') end
     local deadline='0'
     if pending then deadline=decimal_add(unix_value(),math.max(0,pending.deadline-clock_value())) end
-    local values = {'WH2STATUS1','0.6.59-nvda-automation-preview',session,tostring(generation),
+    local values = {'WH2STATUS1','0.6.60-nvda-automation-preview',session,tostring(generation),
         tostring(interaction_revision),tostring(auto_seq),auto_result,screen_kind,
         item and item.key or '-',label,tostring(#controls),pending and pending.target or '-',
         deadline,core:is_ui_created() and '1' or '0',

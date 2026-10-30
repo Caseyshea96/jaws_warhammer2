@@ -28,7 +28,7 @@ local initial,owner,expiry,mode=read_flag()
 local diagnostic=initial~=nil
 if not diagnostic then owner,expiry,mode='player','9999-12-31T23:59:59Z','player' end
 local session='campaign:' .. owner .. ':' .. tostring({})
-local version='0.6.59'
+local version='0.6.60'
 local sequence,generation,bytes,run,attempts=0,1,0,0,0
 local phase,result,last_request='initialising','ready',''
 local queue,head,visited,page,entries,index={},1,0,0,{},0
@@ -757,6 +757,9 @@ end
 -- the companion's standard keys (arrows, Home/End, letters, Enter) read HUD
 -- items; while off, they stay with the game (arrows move the camera).
 local reader_mode=false
+-- 0.6.60: players start with HUD reading on once the map is read (a blind
+-- player has no use for camera arrows first); Shift+F2 still switches.
+local mode_chosen=false
 local keys_owner,keys_seq,state_line,state_ticks,fast_ticks=nil,0,nil,0,0
 local function publish_reader_state(force)
     local line='WH2READER1\t' .. session .. '\t' .. generation .. '\t' .. (reader_mode and '1' or '0') .. '\tcampaign\n'
@@ -1058,6 +1061,9 @@ local function tick()
         if verified_reader and not reader_mode then
             verified_reader=false; reader_mode=true; auto_reader=true; keys_owner=nil
             emit('{"kind":"reader-mode","on":true,"source":"verify-flag"}'); publish_reader_state(true)
+        elseif not diagnostic and not mode_chosen and not reader_mode and finished then
+            mode_chosen=true; reader_mode=true; keys_owner=nil
+            emit('{"kind":"reader-mode","on":true,"source":"player-default"}'); publish_reader_state(true)
         end
         if reader_mode then poll_keys() end
         publish_reader_state(false)
@@ -1119,7 +1125,7 @@ end,function(c)
     if not lease_active() then return end
     local ok,err=pcall(function()
         if c.string=='script_shift_F2' then
-            reader_mode=not reader_mode; auto_reader=false; keys_owner=nil -- a fresh mode never replays old keys
+            reader_mode=not reader_mode; auto_reader=false; keys_owner=nil; mode_chosen=true -- a fresh mode never replays old keys
             publish_reader_state(true)
             speak(reader_mode and 'Reading HUD.' or 'Map controls.')
             if reader_mode then speak_current() end

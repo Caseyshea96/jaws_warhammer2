@@ -69,8 +69,14 @@ end
 local function begin() fire('FirstTickAfterWorldCreated',{}) end
 local function tick(count)
     for n=1,count do
-        if not pending then return end
-        pending=false;fire('RealTimeTrigger',{string=timer})
+        -- One tick is one second of game time: with HUD reading on, the player
+        -- reader runs every 100 ms (slow work every tenth run).
+        local state=files[prefix .. 'reader-state.tsv']
+        local fast=type(state)=='string' and state:find('\t1\tcampaign',1,true) and (files[prefix .. 'campaign-discovery-status.json'] or '')==''
+        for k=1,fast and 10 or 1 do
+            if not pending then return end
+            pending=false;fire('RealTimeTrigger',{string=timer})
+        end
     end
 end
 local function contents(name) return files[prefix .. name] or '' end
@@ -207,6 +213,12 @@ for n=1,12 do tick(1) end
 local heard=contents('bridge.jsonl')
 assert(heard:find('Campaign map, 4 items.',1,true),heard)
 assert(status()=='' and contents('campaign-discovery-request.tsv')=='','No diagnostic channel for players')
+-- 0.6.60: HUD reading is on once the map is read; Shift+F2 switches it off and on.
+assert(contents('reader-state.tsv'):find('\t1\tcampaign\n',1,true),'Players start with HUD reading on: ' .. contents('reader-state.tsv'))
+fire('ShortcutTriggered',{string='script_shift_F2'})
+assert(contents('reader-state.tsv'):find('\t0\tcampaign\n',1,true) and contents('bridge.jsonl'):find('Map controls.',1,true))
+for n=1,15 do tick(1) end
+assert(contents('reader-state.tsv'):find('\t0\tcampaign\n',1,true),'A player who switched it off keeps it off')
 fire('ShortcutTriggered',{string='script_shift_F2'})
 assert(contents('reader-state.tsv'):find('\t1\tcampaign\n',1,true),contents('reader-state.tsv'))
 assert(contents('bridge.jsonl'):find('Reading HUD.',1,true))

@@ -236,7 +236,7 @@ start(); nodes.tree.data.ChildCount=6; choose_graphics(); key('script_F4'); key(
 no_dispatch('Preexisting extra panel')
 start(); choose_graphics(); key('script_F4'); nodes.tree.data.ChildCount=6; key('script_F4')
 no_dispatch('New unannounced panel')
-start(); nodes[graphics_key].data.Id='button_audio'; key('script_F2'); key('script_F4'); key('script_F4')
+start(); nodes[graphics_key].data.Id='button_audio'; choose_graphics(); key('script_F4'); key('script_F4')
 no_dispatch('Duplicate/mismatched id')
 -- Native UI recreation, destruction and panel callbacks invalidate cached selection.
 for _, event in ipairs({'create','destroy','PanelOpenedCampaign','PanelClosedCampaign'}) do
@@ -601,7 +601,8 @@ start(); choose_campaign(); key('script_F4'); created(); key('script_F4'); no_di
 start(); choose_campaign(); key('script_F4'); file_failure=true; key('script_F4'); no_dispatch('Campaign log failure')
 start(); nodes.tree.data.ChildCount=6; choose_campaign(); key('script_F4'); key('script_F4'); no_dispatch('Campaign extra modal')
 start(); nodes['tree.child3.child0.child0'].data.Id='button_new_campaign'
-choose_campaign(); key('script_F4'); key('script_F4'); no_dispatch('Campaign duplicate id')
+-- 0.6.60: the selected element is clicked by its own path; a lookalike elsewhere is never the target.
+choose_campaign(); key('script_F4'); key('script_F4'); assert(#dispatches==1 and dispatches[1]==campaign_key,'Selected element only')
 -- Actual 0.6.0 campaign selection data, including the second hidden-Tooltip capture.
 local campaign_fixture=dofile('tests/fixtures/campaign_selection_0_6_0.lua')
 local tooltip_fixture=dofile('tests/fixtures/campaign_selection_tooltip_0_6_0.lua')
@@ -652,7 +653,8 @@ start(nil,campaign_fixture); key('script_F2')
 nodes['tree.child2.child0.child1.child0.child1'].data.CurrentState='active'
 nodes['tree.child2.child0.child1.child1.child1'].data.CurrentState='selected'
 key('script_F2'); assert(says('The Eye of the Vortex, radio button, not checked','1 of 17'))
-choose_continue(); key('script_F4'); key('script_F4'); no_dispatch('Unverified Mortal Empires selection')
+-- 0.6.60: a campaign remembered as selected on another PC (Mortal Empires) may continue.
+choose_continue(); key('script_F4'); key('script_F4'); assert(#dispatches==1 and dispatches[1]==continue_key,'Continue with Mortal Empires selected')
 start(nil,campaign_fixture); key('script_F2')
 nodes['tree.child2.child0.child0.child1.child0.child1.child0'].data.GetStateText='Changed title'
 key('script_F2'); assert(contents('native-ui-graphics-preview.log'):find('navigation.screen_changed',1,true))
@@ -693,8 +695,9 @@ for _, field in ipairs({'Id','Visible','IsInteractive'}) do
     key('script_F4'); no_dispatch('Unexpected extra root child: '..field)
 end
 start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes.tree.data.ChildCount=7; key('script_F4'); no_dispatch('Extra root popup')
-start(nil,tooltip_fixture); nodes['tree.child5'].data.Visible=true; key('script_F2'); assert(says('This screen is not supported yet.')); key('script_F4'); no_dispatch('Visible tooltip/overlay')
-nodes['tree.child5'].data.Visible=false; key('script_F2'); assert(says('1 of 17'))
+-- 0.6.60: a hover tooltip left open by the pointer does not hide the screen.
+start(nil,tooltip_fixture); nodes['tree.child5'].data.Visible=true; key('script_F2'); assert(says('1 of 17'),last())
+start(nil,tooltip_fixture); nodes['tree.child5'].data.Id='dialog'; nodes['tree.child5'].data.Visible=true; key('script_F2'); assert(says('This screen is not supported yet.')); key('script_F4'); no_dispatch('Visible overlay')
 -- Only observed empty, noninteractive smoke leaves may change visibility.
 local particle='tree.child2.child0.child1.child0.child0.child1.child34'
 start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes[particle].data.Visible=not nodes[particle].data.Visible
@@ -748,16 +751,20 @@ nodes[store_tip].data.GetTooltipText=nodes[store_tip].data.GetTooltipText:gsub('
 choose_continue(); key('script_F4'); assert(last():find('Press again',1,true))
 nodes[store_tip].data.GetTooltipText=nodes[store_tip].data.GetTooltipText:gsub('\r\n','\n\n')
 key('script_F4'); no_dispatch('Byte-level line break change during confirmation')
--- Do not normalize tabs, spacing changes, words, IDs, states or non-campaign fields.
+-- 0.6.60: text that differs from this PC's recording (another PC, language,
+-- DLC) is not a reason to refuse; a change between the two presses still is.
 for _, replacement in ipairs({' Left','\t\tLeft','  Changed'}) do
     start(nil,campaign_fixture)
     nodes[store_tip].data.GetTooltipText=nodes[store_tip].data.GetTooltipText:gsub('  Left',replacement,1)
-    choose_continue(); key('script_F4'); key('script_F4'); no_dispatch('Non-newline text change')
+    choose_continue(); key('script_F4'); key('script_F4'); assert(#dispatches==1,'Other text on another PC')
+    start(nil,campaign_fixture); choose_continue(); key('script_F4')
+    nodes[store_tip].data.GetTooltipText=nodes[store_tip].data.GetTooltipText:gsub('  Left',replacement,1)
+    key('script_F4'); no_dispatch('Text change during confirmation')
     if replacement=='\t\tLeft' then assert(contents('native-ui-graphics-preview.log'):find('\\u0009',1,true)) end
 end
 start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes[continue_key].data.CurrentState='active\n'; key('script_F4'); no_dispatch('No state normalization')
 start(nil,campaign_fixture); choose_continue(); key('script_F4'); nodes[continue_key].data.Id='button_next\n'; key('script_F4'); no_dispatch('No ID normalization')
-start(); nodes[graphics_key].data.GetTooltipText='\r\n'; choose_graphics(); key('script_F4'); key('script_F4'); no_dispatch('No main-menu text normalization')
+start(); choose_graphics(); key('script_F4'); nodes[graphics_key].data.GetTooltipText='\r\n'; key('script_F4'); no_dispatch('No main-menu text normalization')
 -- Actual returned main has Tooltip child4 and browser child5, not the reverse.
 local returned_main=dofile('tests/fixtures/frontend_menu_tooltip_0_6_1.lua')
 start(nil,returned_main); key('script_F2'); assert(says('New Campaign','1 of 22'))
@@ -1347,12 +1354,16 @@ single_press=false
 local dlc_header='tree.child2.child1.child0.child0.child3.child0'
 start(); nodes[dlc_header].data.CurrentState='hover'; choose_campaign(); key('script_F4'); key('script_F4')
 assert(#dispatches==1 and dispatches[1]==campaign_key,'Observed unrelated DLC header hover permits verified New Campaign')
+-- 0.6.60: an unrelated element's state or ID on another PC does not block;
+-- a change between the two presses does.
 for _,state in ipairs({'inactive','pressed','selected'}) do
     start(); nodes[dlc_header].data.CurrentState=state; choose_campaign(); key('script_F4'); key('script_F4')
-    no_dispatch('Unknown DLC header state remains blocked')
+    assert(#dispatches==1,'Unrelated header state on another PC')
+    start(); choose_campaign(); key('script_F4'); nodes[dlc_header].data.CurrentState=state; key('script_F4')
+    no_dispatch('Header state changed between presses')
 end
 start(); nodes[dlc_header].data.CurrentState='hover'; nodes[dlc_header].data.Id='unknown_header'
-choose_campaign(); key('script_F4'); key('script_F4'); no_dispatch('DLC header identity remains exact')
+choose_campaign(); key('script_F4'); key('script_F4'); assert(#dispatches==1,'Unrelated header ID on another PC')
 start(); nodes[dlc_header].data.CurrentState='hover'; choose_campaign(); key('script_F4')
 nodes[dlc_header].data.CurrentState='active'; key('script_F4'); no_dispatch('A changed raw header state cancels confirmation')
 -- 0.6.42: with saves present, Continue/Load Campaign are enabled; New Campaign still opens.
@@ -1368,5 +1379,37 @@ key('script_F3')
 click_hook=function() install_scene(campaign_fixture) end
 key('script_F4'); assert(#dispatches==1 and dispatches[1]==campaign_key,'New Campaign opens with saves present')
 click_hook=nil; single_press=false
+-- 0.6.60 (first outside trial): another PC's main menu differs from the one
+-- recorded here (extra element, other text); New Campaign and Continue
+-- Campaign open with one press; Load Campaign is not supported yet.
+single_press=true
+local other_pc={}
+for prefix,row in pairs(fixture) do other_pc[prefix]={}; for k,v in pairs(row) do other_pc[prefix][k]=v end end
+local banner='tree.child2.child1.child0.child0'
+other_pc[banner .. '.child9']={Id='news_ticker',Visible=true,IsInteractive=false,GetStateText='Latest news',GetTooltipText='',CurrentState='NewState',ChildCount=0}
+other_pc[banner].ChildCount=10
+other_pc['tree.child2.child1.child0.child0.child3.child0'].GetStateText='Other DLC banner'
+start(nil,other_pc)
+key('script_F2'); assert(says('New Campaign, button, 1 of 22'),last())
+click_hook=function() install_scene(campaign_fixture) end
+key('script_F4'); assert(#dispatches==1 and dispatches[1]==campaign_key and says('New Campaign activated.'),'Other PC: '..last())
+click_hook=nil
+assert(not contents('bridge.jsonl'):find('Could not verify',1,true))
+local continue_campaign='tree.child2.child1.child0.child0.child0.child0.child2'
+start(nil,other_pc)
+key('script_F2'); key('script_F2'); assert(says('Continue Campaign, button, unavailable'),last())
+key('script_F4'); assert(#dispatches==0 and says('Continue Campaign is unavailable.'),last())
+start(nil,other_pc)
+nodes[continue_campaign].data.CurrentState='active'; nodes[continue_campaign .. '.child0'].data.CurrentState='active'
+key('script_F2'); key('script_F2'); assert(says('Continue Campaign, button, 2 of 22'),last())
+key('script_F4'); assert(#dispatches==1 and dispatches[1]==continue_campaign and says('Continue Campaign activated.'),last())
+start(nil,other_pc)
+for n=1,3 do key('script_F2') end; assert(says('Load Campaign'),last())
+key('script_F4'); assert(#dispatches==0 and says('Not supported yet.'),last())
+-- A replaced or hidden Continue Campaign between selection and press is refused.
+start(nil,other_pc); nodes[continue_campaign].data.CurrentState='active'
+key('script_F2'); key('script_F2'); nodes[continue_campaign].address=newproxy()
+key('script_F4'); assert(#dispatches==0 and says('The screen changed. Press F2 and try again.'),last())
+single_press=false
 io=real_io; os.time=real_time; os.date=real_date
 print('PASS: '..scenarios..' frontend scenarios; 86-node/22-control capture, cached wraparound, four allowlisted frontend targets and observed-result checks, confirmations, stale identities, native failures, template/panel changes, lifecycle, clocks and blocked game contexts')

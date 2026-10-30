@@ -181,7 +181,29 @@ try {
             Set-Status ($readerName + ' must be connected before the game can launch.')
             return $false
         }
-        Start-Process 'steam://rungameid/594570'
+        if (Get-Process -Name Warhammer2 -ErrorAction SilentlyContinue) {
+            Speak 'Warhammer is already running.' -Force
+            return $true
+        }
+        # Start the game with only the accessibility mod, the same command line
+        # TW Mod Manager's Play uses, so no launcher window has to be read.
+        # Needs Steam running and the installed pack; otherwise use Steam.
+        $exe = $(if ($GamePath) { Join-Path $GamePath 'Warhammer2.exe' } else { '' })
+        $pack = $(if ($GamePath) { Join-Path $GamePath 'data\jaws_access.pack' } else { '' })
+        $steamRunning = [bool](Get-Process -Name steam -ErrorAction SilentlyContinue)
+        if ($exe -and (Test-Path -LiteralPath $exe -PathType Leaf) -and (Test-Path -LiteralPath $pack -PathType Leaf) -and $steamRunning) {
+            $list = Join-Path $base 'nvda_mods.txt'
+            $lines = @(('add_working_directory "' + ((Join-Path $GamePath 'data') -replace '\\','/') + '";'), 'mod "jaws_access.pack";')
+            [IO.File]::WriteAllText($list, ($lines -join "`n") + "`n", (New-Object Text.UTF8Encoding $false))
+            Start-Process -FilePath $exe -WorkingDirectory $GamePath -ArgumentList ('"' + $list + '"'),'; -dx11'
+            Set-Status 'Starting Warhammer with the accessibility mod.'
+            Speak 'Starting Warhammer with the accessibility mod. The intro movies play first; Escape skips them.' -Force
+        } else {
+            Start-Process 'steam://rungameid/594570'
+            $why = $(if (-not $steamRunning) { 'Steam is not running, so the game starts through Steam.' } else { 'The game starts through Steam.' })
+            Set-Status $why
+            Speak ($why + ' In the Mod Manager, make sure jaws access is ticked, then press Play.') -Force
+        }
         return $true
     }
     $tails = @(
@@ -324,7 +346,7 @@ try {
         $button.Add_Click($Action); $panel.Controls.Add($button)
     }
     Add-Button ('&Test ' + $readerName + ' / reconnect') { [void](Test-Speech) }
-    Add-Button '&Launch game through Steam' { [void](Launch-Game) }
+    Add-Button '&Launch game' { [void](Launch-Game) }
     Add-Button $(if ($NoHotkeys) { '&Repeat last message' } else { '&Repeat last message (Ctrl+Alt+R)' }) { Speak $script:Last -Force }
     Add-Button $(if ($NoHotkeys) { '&Stop speech' } else { '&Stop speech (Ctrl+Alt+S)' }) { Stop-Speech }
     Add-Button $(if ($NoHotkeys) { '&Mute / unmute' } else { '&Mute / unmute (Ctrl+Alt+M)' }) { Toggle-Mute }

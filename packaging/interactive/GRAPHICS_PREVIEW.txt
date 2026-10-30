@@ -21,12 +21,17 @@ INSTALL (once)
    only the mod's speech is heard.
 
 EACH TIME YOU PLAY
-1. Start NVDA.
-2. Run the desktop shortcut (or Start Pilot.cmd). This small helper passes
-   the mod's speech to NVDA and handles the keys below. Keep it running.
-3. Start the game from Steam. In TW Mod Manager make sure jaws_access is
-   ticked, then press Play. When the main menu is ready you hear
+1. Start NVDA and Steam (signed in).
+2. Run the desktop shortcut "Warhammer NVDA Pilot" (or Start Pilot.cmd).
+   This small helper passes the mod's speech to NVDA and handles the keys
+   below; keep it running. It tests speech, then starts the game itself
+   with only the accessibility mod: no TW Mod Manager window. You hear
+   "Starting Warhammer with the accessibility mod." Other mods are not
+   loaded in this mode. The intro movies play first (Escape skips them).
+   When the main menu is ready you hear
    "Warhammer accessibility ready. Arrow keys move, Enter activates."
+   If Steam was not running, the game opens through Steam instead: in TW
+   Mod Manager make sure jaws_access is ticked, then press Play.
 
 ------------------------------------------------------------------------
 KEYS IN MENUS
@@ -39,6 +44,8 @@ KEYS IN MENUS
   F2 / F3 / F4        also next / previous / activate
 
 STARTING A CAMPAIGN
+  Continue Campaign (main menu) loads your latest save. Load Campaign is
+  not supported yet.
   Main menu: Campaigns / New Campaign  ->  Select Campaign: Continue  ->
   Select Lord: choose a lord with Enter ("Teclis is now selected.").
   "Enable campaign introduction, check box": we suggest unchecking it with
@@ -53,9 +60,9 @@ When the map is ready you hear "Campaign map, N items." and, if a panel is
 open, its title (for example "How They Play, heading"). Items are read in
 screen order: a panel's title, its text, then its buttons.
 
-  Shift+F2            HUD reading ON / OFF. ON: the keys below read the
-                      screen ("Reading HUD."). OFF: arrows move the camera
-                      as normal ("Map controls.").
+  Shift+F2            HUD reading ON / OFF. It starts ON: the keys below
+                      read the screen ("Reading HUD."). OFF: arrows move the
+                      camera as normal ("Map controls.").
   Down / Up, Home/End, letters    move between items (HUD reading on)
   Enter               press the current button, tab, list item or building
   Shift+F3            read the screen again. If the reader ever goes

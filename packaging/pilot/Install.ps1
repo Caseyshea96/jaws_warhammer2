@@ -120,11 +120,11 @@ try {
         }
         Write-Host "Installed: $app"
         $readerName = $(if ($manifest.screen_reader -eq 'NVDA') { 'NVDA' } else { 'JAWS' })
-        Write-Host ("Start $readerName. Run Start Pilot.cmd (or the desktop shortcut). Test $readerName, then launch the game.")
+        Write-Host ("Start $readerName and Steam, then run the desktop shortcut (or Start Pilot.cmd). It tests $readerName and starts the game with the accessibility mod; no Mod Manager is needed.")
         if ($manifest.screen_reader -eq 'NVDA') {
             Write-Host 'Before testing, install warhammer2-quiet-mode-0.1.0.nvda-addon from the App folder and restart NVDA.'
         }
-        Write-Host 'Enable jaws_access in the existing game launcher Mod Manager. Do not enable jaws_probe.'
+        Write-Host 'If Steam is not running, the game opens through Steam: tick jaws_access in the Mod Manager and press Play. Do not enable jaws_probe.'
         Write-Host 'This is an experimental integration pilot; Windows/game/co-op results still need testing.'
     } finally { $lock.Dispose() }
     exit 0
