@@ -1319,6 +1319,48 @@ key('script_F4'); assert(spoken()=='Start the campaign as Tyrion, High Elves, Ea
 key('script_F4'); assert(#dispatches==1 and dispatches[1]=='tree.child2.child1.child0','Second press starts the campaign')
 assert(spoken()=='Starting the campaign. The campaign map cannot be read yet.',spoken())
 assert(contents('native-ui-graphics-preview.log'):find('activation.dispatch\tstring\tStart Campaign',1,true))
+-- 0.6.62: Select Lord on another PC (no exact counts). Only a visible or
+-- unreadable extra root layer blocks; the chosen element is re-checked.
+local function lord_variant(change)
+    local layout={}
+    for prefix,row in pairs(lord_live) do local copy={}; for k,v in pairs(row) do copy[k]=v end; layout[prefix]=copy end
+    change(layout); return layout
+end
+local function starts_here(layout, message)
+    start(nil,layout,false)
+    assert(browse_to('Start Campaign, button'),message .. ': Start Campaign listed')
+    key('script_F4'); assert(spoken()=='Start the campaign as Tyrion, High Elves, Eataine? Press Enter again to start.',message .. ': ' .. spoken())
+    key('script_F4'); assert(#dispatches==1 and dispatches[1]=='tree.child2.child1.child0',message .. ': started')
+end
+starts_here(lord_variant(function(l) l['tree'].ChildCount=4; l['tree.child4']=nil end),'No browser layer')
+starts_here(lord_variant(function(l)
+    l['tree'].ChildCount=7
+    l['tree.child5']={Id='dlc_popup',Visible=false,ChildCount=0,GetStateText='',GetTooltipText='',CurrentState='',IsInteractive=false}
+    l['tree.child6']={Id='browser',Visible=false,ChildCount=0,GetStateText='',GetTooltipText='',CurrentState='',IsInteractive=false}
+end),'Hidden extra layers and a second browser')
+starts_here(lord_variant(function(l)
+    l['tree.child2'].ChildCount=7
+    l['tree.child2.child6']={Id='dlc_banner',Visible=false,ChildCount=0,GetStateText='',GetTooltipText='',CurrentState='',IsInteractive=false}
+end),'Extra hidden panel child')
+local dialog_layout=lord_variant(function(l)
+    l['tree'].ChildCount=6
+    l['tree.child5']={Id='dialogue_box',Visible=true,ChildCount=0,GetStateText='',GetTooltipText='',CurrentState='',IsInteractive=true}
+end)
+start(nil,dialog_layout,false); key('script_F2'); key('script_F4'); key('script_F4')
+assert(not last():find('Select Lord',1,true),'A visible dialog layer is not read as Select Lord'); no_dispatch('Visible dialog blocks')
+assert(contents('native-ui-graphics-preview.log'):find('lord.context_reject\tstring\textra 5 id=dialogue_box visible=true',1,true))
+start(nil,lord_live,false); nodes['tree.child4'].faults.Visible='throw'; key('script_F2')
+assert(contents('native-ui-graphics-preview.log'):find('lord.context_reject\tstring\textra 4 unreadable',1,true))
+key('script_F4'); key('script_F4'); no_dispatch('Unreadable layer blocks')
+-- A dialog appearing between the confirmation and the start cancels it.
+start(nil,lord_variant(function(l)
+    l['tree'].ChildCount=6
+    l['tree.child5']={Id='dialogue_box',Visible=false,ChildCount=0,GetStateText='',GetTooltipText='',CurrentState='',IsInteractive=true}
+end),false)
+assert(browse_to('Start Campaign, button'),'A hidden dialog layer does not block'); key('script_F4')
+nodes['tree.child5'].data.Visible=true
+key('script_F4'); no_dispatch('Dialog after the first press stops the start')
+assert(says('The screen changed. Press F2 and try again.'),last())
 -- Timeout and a changed lord stop the start.
 start(nil,lord_live,false)
 assert(browse_to('Start Campaign, button'))

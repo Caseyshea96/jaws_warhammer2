@@ -345,7 +345,7 @@ for _, base in ipairs(bases) do
     local path = base .. 'native-ui-graphics-preview.log'
     local f = io.open(path, 'w')
     if f then
-        local header = 'WH2 native UI diagnostic 0.6.61-nvda-automation-preview\n'
+        local header = 'WH2 native UI diagnostic 0.6.62-nvda-automation-preview\n'
         f:write(header); f:close(); log_bytes = #header + 1
         log_path = path; bridge_path = base .. (base == '' and 'jaws_access.jsonl' or 'bridge.jsonl')
         local bridge = io.open(bridge_path, 'w'); if bridge then bridge:close() end
@@ -1462,10 +1462,14 @@ local function lord_context()
     local _,id=lord_read(function() local v=root:Id(); return v end)
     local _,visible=lord_read(function() local v=root:Visible(true); return v end)
     local _,count=lord_read(function() local v=root:ChildCount(); return v end)
-    if id~='root' or visible~=true or type(count)~='number' or count<5 or count>8 then
+    -- 0.6.62: other PCs differ (seen on the main menu in the first outside
+    -- trial), so no exact counts: extra root layers may be tooltips or
+    -- anything hidden (the browser included); a visible or unreadable other
+    -- layer (a dialog or web page on top) still blocks. Activation re-checks
+    -- the chosen element.
+    if id~='root' or visible~=true or type(count)~='number' or count<3 or count>32 then
         return lord_reject('root id=' .. tostring(id) .. ' visible=' .. tostring(visible) .. ' count=' .. tostring(count))
     end
-    local browsers=0
     for index=4,count-1 do
         local _,extra_address=lord_read(function() local v=root:Find(index); return v end)
         if not extra_address then return lord_reject('extra ' .. index .. ' missing') end
@@ -1475,15 +1479,15 @@ local function lord_context()
         local _,extra_visible=lord_read(function() local v=extra:Visible(true); return v end)
         -- Hover tooltips are non-interactive text layers; selecting a lord
         -- leaves a hidden tooltip_campaign_select_lord at the root (seen
-        -- live in 0.6.20). Accept tooltip layers shown or hidden on this
-        -- read-only path; the browser must stay hidden; reject anything else.
-        local tooltip=extra_id=='Tooltip' or starts_with(extra_id,'tooltip_')
-        if not tooltip and (extra_visible~=false or extra_id~='browser') then
-            return lord_reject('extra ' .. index .. ' id=' .. tostring(extra_id) .. ' visible=' .. tostring(extra_visible))
+        -- live in 0.6.20).
+        if type(extra_id)~='string' or type(extra_visible)~='boolean' then
+            return lord_reject('extra ' .. index .. ' unreadable')
         end
-        if extra_id=='browser' then browsers=browsers+1 end
+        local allowed=extra_id=='Tooltip' or starts_with(extra_id,'tooltip_')
+        if extra_visible and not allowed then
+            return lord_reject('extra ' .. index .. ' id=' .. extra_id .. ' visible=true')
+        end
     end
-    if browsers~=1 then return lord_reject('browsers=' .. browsers) end
     local _,address=lord_read(function() local v=root:Find(2); return v end)
     if not address then return lord_reject('panel missing') end
     local converted,panel=lord_read(function() local v=UIComponent(address); return v end)
@@ -1491,7 +1495,7 @@ local function lord_context()
     local _,panel_id=lord_read(function() local v=panel:Id(); return v end)
     local _,panel_visible=lord_read(function() local v=panel:Visible(true); return v end)
     local _,panel_count=lord_read(function() local v=panel:ChildCount(); return v end)
-    if panel_id~='sp_grand_campaign' or panel_visible~=true or panel_count~=6 then
+    if panel_id~='sp_grand_campaign' or panel_visible~=true or type(panel_count)~='number' or panel_count<1 then
         return lord_reject('panel id=' .. tostring(panel_id) .. ' visible=' .. tostring(panel_visible) .. ' count=' .. tostring(panel_count))
     end
     local _,root_address=lord_read(function() local v=root:Address(); return v end)
@@ -2022,7 +2026,7 @@ local function publish_status()
     if #label > 800 then label = label:sub(1,800):gsub('[\192-\255][\128-\191]*$','') end
     local deadline='0'
     if pending then deadline=decimal_add(unix_value(),math.max(0,pending.deadline-clock_value())) end
-    local values = {'WH2STATUS1','0.6.61-nvda-automation-preview',session,tostring(generation),
+    local values = {'WH2STATUS1','0.6.62-nvda-automation-preview',session,tostring(generation),
         tostring(interaction_revision),tostring(auto_seq),auto_result,screen_kind,
         item and item.key or '-',label,tostring(#controls),pending and pending.target or '-',
         deadline,core:is_ui_created() and '1' or '0',

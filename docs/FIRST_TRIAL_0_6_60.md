@@ -121,3 +121,39 @@ speech-trace.jsonl):
 
 Not changed: the automation endpoint still reports ready during the movies
 (test scripts must still confirm the menu on screen).
+
+## 0.6.62: Select Lord without this PC's exact layout
+
+Select Lord (`lord_context` in `diagnostics/graphics_preview.lua`) still had
+the exact-layout checks that broke the main menu on the friend's PC: root 5–8
+children, exactly one hidden `browser` layer, no other extra layer even hidden,
+and the `sp_grand_campaign` panel with exactly 6 children. Any difference (no
+news browser, a hidden DLC layer, an extra panel child) would leave Select Lord
+unread and Start Campaign unusable.
+
+Now: root `root` and visible with 3–32 children; extra root layers (index 4
+on) may be anything hidden, or a visible `Tooltip`/`tooltip_*`; a visible
+other layer (a dialog, or the web browser shown on top) or an unreadable one
+blocks, as before; the panel must be `sp_grand_campaign`, visible, with at
+least one child. Unchanged: the panel is root child 2 (from the game's layout
+files, as for every frontend screen), reading must complete without errors to
+choose, and every activation re-resolves its path by ID and checks state.
+Rejections are still logged as `lord.context_reject`.
+
+Harness 394 frontend scenarios (+ no browser layer, hidden extra layers and a
+second browser, an extra hidden panel child — each reads and starts after the
+confirmation; a visible dialog layer and an unreadable layer block; a dialog
+appearing after the first Start Campaign press stops the start).
+
+Live (player path, NVDA, `work/live-0.6.62-lord`): ready 16:50:19 after the
+movies → Down, Enter: "New Campaign activated." → "Select Campaign. The Eye of
+the Vortex…" → Continue → "Select Lord. Select Lord, heading, 1 of 49", "Start
+Campaign, button, 2 of 49", "Selected lord: Tyrion, 3 of 49", the introduction
+check box (on screen: unchecked) → Enter on Start Campaign: "Start the campaign
+as Tyrion, High Elves, Eataine? Press Enter again to start." → Down cancelled
+it. No campaign started; dispatches were New Campaign and Continue only.
+
+Still per-PC: the named-field labels ("Selected lord:", "Race:", "Faction:",
+difficulties) and the start prompt's names use fixed paths; if a PC's layout
+shifts them, items are still read but without those prefixes, and the prompt
+says "Start the campaign?" without names.
