@@ -1234,6 +1234,13 @@ key('script_F3'); assert(browse_to('Start Campaign, button'))
 key('script_F4'); assert(spoken()=='Start the campaign as Tyrion, High Elves, Eataine? Press Enter again to start.','Moving away cancelled the first press'); no_dispatch('Cancelled start')
 assert(browse_to('Selected lord: Tyrion'))
 key('script_F4'); assert(spoken():find('Selected lord: Tyrion',1,true)==1,'F4 on text is silent'); no_dispatch('Text is not actionable')
+-- 0.6.50: the intro check box toggles with one press (the tutorial locks End Turn).
+assert(browse_to('Enable campaign introduction, check box'))
+key('script_F4'); assert(spoken()=='Enable campaign introduction. Press again to confirm.',spoken()); no_dispatch('Confirm option asks first')
+key('script_F4'); assert(spoken()=='Enable campaign introduction, not checked',spoken())
+assert(#dispatches==1 and dispatches[1]:find('child',1,true),'One click on the check box')
+key('script_F4'); assert(spoken()=='Enable campaign introduction. Press again to confirm.','Enter right after toggling stays on the check box: '..spoken())
+key('script_F2'); assert(not spoken():find(', 1 of 49',1,true) and not spoken():find('No item selected',1,true),'Arrow continues after the check box: '..spoken())
 -- Many automatic refreshes in one session never exhaust the discovery log.
 start(nil,lord_live,false)
 key('script_F2')

@@ -1,47 +1,117 @@
-WARHAMMER II NVDA ACCESSIBILITY PREVIEW
+WARHAMMER II NVDA ACCESSIBILITY PROTOTYPE
 
-Speaks the game's front-end menus through NVDA, the way NVDA reads any
-program: name, role, state, then position (for example "New Campaign,
-button, 1 of 22"). The screen name is spoken when you arrive on a screen.
+An early prototype that lets Total War: WARHAMMER II be played with NVDA
+and the keyboard: menus, starting a campaign, reading the campaign screen,
+managing settlements (build, recruit) and ending turns. Moving armies and
+battles are NOT supported yet. Your feedback on how things should be
+controlled is the main goal of this test.
 
-START
-1. Start NVDA, then run "Start Pilot.cmd" (or the desktop shortcut).
-2. Launch the game through Steam and TW Mod Manager with jaws_access enabled.
-3. Install warhammer2-quiet-mode-0.1.0.nvda-addon once (from the App folder)
-   and restart NVDA, so NVDA stays quiet while the game has focus.
+Items are spoken the way NVDA reads any program: name, role, value, states,
+then position, for example "Recruit Lord, button, 53 of 106".
 
-KEYS (in the game's menus, while the game window has focus)
-  Down arrow / Up arrow   next / previous item
-  Tab                     next item (Shift+Tab is Steam's overlay)
-  Home / End              first / last item
-  Enter or Space          activate the item (press once)
-  A letter                next item starting with that letter
-  Escape                  the game's own Back key
-  F2 / F3 / F4            also next / previous / activate
+------------------------------------------------------------------------
+INSTALL (once)
+1. Close the game. Extract the whole ZIP to a folder.
+2. Run Install.cmd. It finds the Steam game folder (or asks for the folder
+   containing Warhammer2.exe), copies jaws_access.pack into the game's data
+   folder and the helper into %LOCALAPPDATA%\JawsWarhammer2\App. It makes a
+   desktop shortcut "Warhammer JAWS Pilot".
+3. Install warhammer2-quiet-mode-0.1.0.nvda-addon (in the App folder) into
+   NVDA and restart NVDA. It keeps NVDA quiet while the game has focus, so
+   only the mod's speech is heard.
 
-The companion window takes these keys only while the game is focused and on
-a menu screen; everywhere else they belong to the game and other programs.
+EACH TIME YOU PLAY
+1. Start NVDA.
+2. Run the desktop shortcut (or Start Pilot.cmd). This small helper passes
+   the mod's speech to NVDA and handles the keys below. Keep it running.
+3. Start the game from Steam. In TW Mod Manager make sure jaws_access is
+   ticked, then press Play. When the main menu is ready you hear
+   "Warhammer accessibility ready. Arrow keys move, Enter activates."
 
-WHAT WORKS
-- Main menu: New Campaign and Graphics open.
-- Select Campaign: Continue opens Select Lord.
-- Select Lord: every item is read; choosing a lord works and is confirmed
-  ("Teclis is now selected."). The screen re-reads itself when the lord or a
-  difficulty changes.
-- Graphics and Advanced graphics are read; their settings cannot be changed.
-- Start Campaign asks first ("Start the campaign as Tyrion, ...? Press Enter
-  again to start."); moving away cancels.
-- Campaign map: the HUD is read when the map appears. Shift+F2 switches HUD
-  reading on (arrows, Home/End and letters read items) and off (arrows move
-  the camera). Shift+F3 reads the screen again. Enter presses HUD buttons and
-  tabs (End Turn asks first); the screen is re-read and announced when it
-  changes. Map and army orders are not supported.
-- Other buttons say "Not supported yet."
+------------------------------------------------------------------------
+KEYS IN MENUS
+  Down / Up arrow     next / previous item
+  Tab                 next item (Shift+Tab is Steam's overlay)
+  Home / End          first / last item
+  Enter or Space      activate (one press)
+  A letter            next item starting with that letter
+  Escape              the game's own Back key
+  F2 / F3 / F4        also next / previous / activate
+
+STARTING A CAMPAIGN
+  Main menu: Campaigns / New Campaign  ->  Select Campaign: Continue  ->
+  Select Lord: choose a lord with Enter ("Teclis is now selected.").
+  "Enable campaign introduction, check box": we suggest unchecking it with
+  Enter for now. The tutorial locks End Turn and several buttons until its
+  objectives (which need army movement) are done.
+  "Start Campaign" asks first: press Enter twice.
+  The map then loads and an intro flyover plays (about a minute).
+
+------------------------------------------------------------------------
+ON THE CAMPAIGN MAP
+When the map is ready you hear "Campaign map, N items." and the first item.
+
+  Shift+F2            HUD reading ON / OFF. ON: the keys below read the
+                      screen ("Reading HUD."). OFF: arrows move the camera
+                      as normal ("Map controls.").
+  Down / Up, Home/End, letters    move between items (HUD reading on)
+  Enter               press the current button, tab, list item or building
+  Shift+F3            read the screen again (also wakes the reader if it
+                      ever goes silent)
+  F2 / F3 / F4        next / previous / activate, even with HUD reading off
+
+When a panel opens or closes you hear "Screen updated." and the reader moves
+to the new panel's title or first new item. Advisor and notification text is
+spoken when it changes ("Advisor: ...").
+
+Actions that cannot be undone ask first: End Turn, Quit/Exit/Load, Abandon,
+Recruit and Build ("...? Press Enter again to confirm."). Moving away
+cancels.
+
+THINGS TO TRY (in a new campaign)
+1. Opening panels: "How They Play" and "Mission Issued!" appear first. Press
+   A to reach "Accept, button" and Enter. C reaches "Close advice".
+2. Provinces: press P until "Provinces, tab", Enter. Each province is one
+   item: "Straits of Lothern, list item, 520, Contested province, Public
+   Order: Neutral, Building upgrades available". Enter selects it and opens
+   its settlement panel.
+3. Settlement panel: each settlement name is a heading, followed by its
+   buildings: "Lothern (Elven Hamlet), button, Lothern, Building upgrades
+   available", "Construction slot, button, Lothern, locked".
+4. Build: Enter on a building gives its upgrades as a short list ("Upgrades
+   for Lothern (Elven Hamlet), 5 options."). Arrow to an upgrade
+   ("Lothern (Elven Village), button, Population surplus cost 1"), press
+   Enter twice to build. Afterwards the slot reads "under construction,
+   3 turns left". "Close upgrades" leaves the list.
+5. Recruit a lord: in the settlement panel press R until "Recruit Lord,
+   button", Enter. Lord types are tabs (Legendary Lords, Prince, Princess);
+   each candidate is one item with cost and upkeep, and says why if you
+   cannot afford them. Enter on a candidate selects it; then R to "Recruit,
+   button" and Enter twice. (Moving the new army is not supported yet.)
+6. Notifications: S reaches "Skip, button" to skip the current notification.
+7. End turn: E reaches "End turn, button". Enter twice. If it says "End turn
+   is unavailable", read its description: usually advice or a notification
+   needs dismissing first. Ending a turn makes the game autosave.
+
+NOT SUPPORTED YET
+Moving armies or agents, battles, diplomacy screens beyond reading, changing
+game settings, and co-op. Many panels are read but their buttons may say
+"Not supported yet." Reading order inside some panels is still rough.
+
+------------------------------------------------------------------------
+FEEDBACK
+Most useful: what you tried, what you expected to hear or press, and what
+felt slow or confusing. Ideas for better keys are very welcome.
+If something breaks, note what you pressed and what was said last, and send
+these files from %LOCALAPPDATA%\JawsWarhammer2 :
+  bridge.jsonl, native-ui-graphics-preview.log,
+  native-ui-campaign-discovery.jsonl (if present), companion.log
+They contain game screen text only (no passwords).
+
+REMOVE
+Close the game and the helper, then run Uninstall.cmd. Saves and other
+mods are kept.
 
 OPTIONS
-- confirm-activations.flag in %LOCALAPPDATA%\JawsWarhammer2 makes every
-  action need two presses within four seconds.
-
-DEVELOPMENT
-Automation.ps1 drives the same handlers for testing (lease-gated, disabled by
-default); see docs/FRONTEND_AUTOMATION.md in the source repository.
+confirm-activations.flag in %LOCALAPPDATA%\JawsWarhammer2 makes every menu
+action need two presses within four seconds.

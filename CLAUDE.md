@@ -24,7 +24,7 @@ left intact. Paths like `work/live-0.6.17-lord-discovery` in the docs resolve he
 ## Current state — read before working
 
 - `docs/AUTOMATION_SESSION.md` — full session history and current stop point.
-- `docs/SETTLEMENTS_0_6_43.md` — latest: provinces, settlement panel, building and recruiting by keyboard (accepted 0.6.49).
+- `docs/SETTLEMENTS_0_6_43.md` — latest: provinces, settlement panel, building and recruiting by keyboard, intro check box, player guide (accepted 0.6.51).
 - `docs/CAMPAIGN_BUTTONS_0_6_39.md` — HUD buttons, End Turn, first turn by keyboard (0.6.38–0.6.42).
 - `docs/CAMPAIGN_DISCOVERY_0_6_31.md` — owner-requested stop; candidate offline checks passed, live gates pending.
 - `docs/CAMPAIGN_DISCOVERY_0_6_30.md` — latest live result: partial campaign capture; 0.6.28 restored.
@@ -167,7 +167,7 @@ authorized scope.
 - Verify each major transition before continuing.
 - Never repeatedly click a control without checking the resulting state.
 - If the same launch step fails twice, investigate rather than retrying blindly.
-- Preserve the last known working build (0.6.49; before it 0.6.43) as the rollback.
+- Preserve the last known working build (0.6.51; before it 0.6.49) as the rollback.
 - Do not delete game saves or unrelated configuration files.
 - Distinguish launcher failures, mod-loading failures, game crashes, and
   accessibility integration failures.

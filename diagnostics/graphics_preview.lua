@@ -39,6 +39,9 @@ local scan_nodes, scan_parts, scan_reads = {}, {}, {}
 local snapshot_node_count = 0
 local lord_discovery
 local announce_prefix = ''
+-- After toggling the intro check box the screen is read again; the reader
+-- returns to the check box so Enter or an arrow continues from it.
+local lord_resume_key, quiet_announce = nil, false
 local last_screen -- screen whose title was last spoken
 local nav_target -- 'first', 'last' or {letter=x} for the next announcement
 local lord_awaiting -- lord name sent by the last selection, until observed
@@ -342,7 +345,7 @@ for _, base in ipairs(bases) do
     local path = base .. 'native-ui-graphics-preview.log'
     local f = io.open(path, 'w')
     if f then
-        local header = 'WH2 native UI diagnostic 0.6.49-nvda-automation-preview\n'
+        local header = 'WH2 native UI diagnostic 0.6.51-nvda-automation-preview\n'
         f:write(header); f:close(); log_bytes = #header + 1
         log_path = path; bridge_path = base .. (base == '' and 'jaws_access.jsonl' or 'bridge.jsonl')
         local bridge = io.open(bridge_path, 'w'); if bridge then bridge:close() end
@@ -937,6 +940,7 @@ local function announce_control(step)
     local title = screen_titles[screen_kind]
     if title and screen_kind ~= last_screen then prefix = prefix .. title .. '. ' end
     last_screen = screen_kind
+    if quiet_announce then return end
     speak(prefix .. spoken_item(item, control_index, #controls))
 end
 local graphics_key = 'tree.child2.child1.child0.child0.child2.child0.child1'
@@ -1457,7 +1461,16 @@ local function lord_page(announce)
                     local key='lord:' .. item.label .. ':' .. suffix
                     local entry_item={key=key,name=label,
                         state=(state=='selected' or state=='inactive') and state or '',read_only=true,id=id,raw_state=state,parent_id=parent_id}
-                    if id=='checkbox_start_prelude' then entry_item.description=label; d.checkbox_entry=entry_item end
+                    if id=='checkbox_start_prelude' then
+                        entry_item.description=label; d.checkbox_entry=entry_item
+                        -- The intro check box can be toggled (the tutorial locks End Turn).
+                        if values.IsInteractive==true then
+                            local path,ancestors={},{}
+                            for part,value in ipairs(item.path) do path[part]=value end
+                            for part,value in ipairs(item.ids or {}) do ancestors[part]=value end
+                            entry_item.prelude,entry_item.choice_path,entry_item.choice_ids,entry_item.read_only=true,path,ancestors,false
+                        end
+                    end
                     if parent_id=='button_start_campaign' and suffix=='text' then
                         local ids=item.ids or {}
                         local path,ancestors={},{}
@@ -1569,7 +1582,15 @@ local function lord_browse(step)
     end
     if #controls==0 then
         speak('This screen has no readable text.')
-    else announce_control(step) end
+    else
+        if lord_resume_key then
+            for position,item in ipairs(controls) do
+                if item.key==lord_resume_key then control_index=position end
+            end
+            lord_resume_key=nil
+        end
+        announce_control(step)
+    end
     return true
 end
 
@@ -1611,7 +1632,8 @@ end
 local function lord_activate()
     local item,d=controls[control_index],lord_discovery
     local starting=item.start_campaign==true
-    if not starting and item.raw_state=='selected' then cancel(); speak(item.id .. ' is already selected.'); return end
+    local prelude=item.prelude==true
+    if not starting and not prelude and item.raw_state=='selected' then cancel(); speak(item.id .. ' is already selected.'); return end
     if not d or not d.done or d.limited then
         cancel(); speak(d and d.done and 'This screen could not be read completely, so choosing is unavailable.'
             or 'Still reading this screen. Press F2, then try again.'); return
@@ -1627,7 +1649,8 @@ local function lord_activate()
     if not node then invalidate(); log('activation.lord_unverified', reason); speak('The screen changed. Press F2 and try again.'); return end
     local interactive_ok,interactive=lord_read(function() local v=node:IsInteractive(); return v end)
     local state_ok,state=lord_read(function() local v=node:CurrentState(); return v end)
-    if not interactive_ok or interactive~=true or not state_ok or (state~='active' and state~='hover') then
+    local clickable=state=='active' or state=='hover' or (prelude and (state=='selected' or state=='selected_hover'))
+    if not interactive_ok or interactive~=true or not state_ok or not clickable then
         log('activation.lord_blocked', 'state:' .. tostring(state)); invalidate(); speak('The screen changed. Press F2 and try again.'); return
     end
     -- Starting a campaign always asks first, like a confirmation dialog:
@@ -1641,7 +1664,8 @@ local function lord_activate()
             pending={target=item.key,armed_at=now,deadline=now+(starting and 10 or 4),fingerprint=leaf,generation=generation,origin=activation_origin}
             activation_outcome='armed'
             log('activation.armed',now)
-            speak(starting and start_prompt() or ('Select ' .. item.id .. '. Press again to confirm.')); return
+            speak(starting and start_prompt() or prelude and ((item.label or 'Campaign introduction') .. '. Press again to confirm.')
+                or ('Select ' .. item.id .. '. Press again to confirm.')); return
         end
         if pending.target~=item.key or pending.generation~=generation or pending.fingerprint~=leaf then
             invalidate(); speak('Cancelled: the selection changed.'); return
@@ -1651,6 +1675,13 @@ local function lord_activate()
     if starting then
         send_click(node,'Start Campaign')
         speak('Starting the campaign. The campaign map cannot be read yet.')
+        return
+    end
+    if prelude then
+        local was_checked=state=='selected' or state=='selected_hover'
+        send_click(node,'Campaign introduction')
+        lord_resume_key=item.key
+        speak((item.label or 'Campaign introduction') .. ', ' .. (was_checked and 'not checked' or 'checked'))
         return
     end
     lord_awaiting=item.id
@@ -1717,10 +1748,14 @@ end
 local function request_activation(source)
     interaction_revision = interaction_revision + 1
     activation_origin, activation_outcome = source, 'blocked'
+    if lord_resume_key and #controls==0 then
+        -- Enter straight after toggling: read the screen again quietly, back on the check box.
+        quiet_announce=true; pcall(lord_browse,0); quiet_announce=false
+    end
     local lord_mode=lord_discovery or screen_kind=='lord_discovery'
     if lord_mode then
         local item=controls[control_index]
-        if not (item and (item.lord_choice or item.start_campaign)) then
+        if not (item and (item.lord_choice or item.start_campaign or item.prelude)) then
             cancel()
             local _, role = describe(item or {})
             if item and role and role ~= 'heading' then speak('Not supported yet.') end
@@ -1838,7 +1873,7 @@ local function publish_status()
     if #label > 800 then label = label:sub(1,800):gsub('[\192-\255][\128-\191]*$','') end
     local deadline='0'
     if pending then deadline=decimal_add(unix_value(),math.max(0,pending.deadline-clock_value())) end
-    local values = {'WH2STATUS1','0.6.49-nvda-automation-preview',session,tostring(generation),
+    local values = {'WH2STATUS1','0.6.51-nvda-automation-preview',session,tostring(generation),
         tostring(interaction_revision),tostring(auto_seq),auto_result,screen_kind,
         item and item.key or '-',label,tostring(#controls),pending and pending.target or '-',
         deadline,core:is_ui_created() and '1' or '0',

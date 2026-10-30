@@ -147,3 +147,17 @@ Still open: after recruiting, the game selects the new army (army orders stay
 blocked); the built building in the upgrade list shows a stray "Population
 surplus cost 8"; the Other Provinces sort buttons and minimap icons; physical
 keys unverified.
+
+## 0.6.50–0.6.51: intro check box by keyboard; player guide (accepted 0.6.51)
+
+- Select Lord: "Enable campaign introduction, check box" toggles with Enter
+  (same identity checks as lord portraits): "Enable campaign introduction,
+  checked" / "not checked". The reader returns to the check box afterwards, so
+  Enter again or an arrow continues from it (0.6.50 lost the place).
+  Live 0.6.51: Enter → checked (screenshot), Enter → not checked, Down →
+  "Race Attributes, heading, 5 of 49". Evidence: `work/live-0.6.51-prelude`.
+- The ZIP's README.txt (`packaging/interactive/GRAPHICS_PREVIEW.txt`) is now a
+  player guide for the first outside tester: install, keys, starting a
+  campaign (uncheck the introduction), campaign map keys (Shift+F2 for HUD
+  reading), things to try (provinces, build, recruit, skip, end turn), what is
+  not supported, and what to send back.
