@@ -49,7 +49,9 @@ STARTING A CAMPAIGN
 
 ------------------------------------------------------------------------
 ON THE CAMPAIGN MAP
-When the map is ready you hear "Campaign map, N items." and the first item.
+When the map is ready you hear "Campaign map, N items." and, if a panel is
+open, its title (for example "How They Play, heading"). Items are read in
+screen order: a panel's title, its text, then its buttons.
 
   Shift+F2            HUD reading ON / OFF. ON: the keys below read the
                       screen ("Reading HUD."). OFF: arrows move the camera
@@ -78,7 +80,10 @@ THINGS TO TRY (in a new campaign)
    its settlement panel.
 3. Settlement panel: each settlement name is a heading, followed by its
    buildings: "Lothern (Elven Hamlet), button, Lothern, Building upgrades
-   available", "Construction slot, button, Lothern, locked".
+   available", "Construction slot, button, Lothern, locked". G reaches the
+   province figures: "Growth, 0/600 (+20)", "Turns until surplus point, 30",
+   "Population Surplus, 1", "Tax Province, check box, checked" (read only for
+   now), "Income, 520", "Public order, 0 (-1), Neutral".
 4. Build: Enter on a building gives its upgrades as a short list ("Upgrades
    for Lothern (Elven Hamlet), 5 options."). Arrow to an upgrade
    ("Lothern (Elven Village), button, Population surplus cost 1"), press
@@ -87,8 +92,10 @@ THINGS TO TRY (in a new campaign)
 5. Recruit a lord: in the settlement panel press R until "Recruit Lord,
    button", Enter. Lord types are tabs (Legendary Lords, Prince, Princess);
    each candidate is one item with cost and upkeep, and says why if you
-   cannot afford them. Enter on a candidate selects it; then R to "Recruit,
-   button" and Enter twice. (Moving the new army is not supported yet.)
+   cannot afford them. The selected lord's stats follow ("Armour, 80,
+   Shielded", "Leadership, 80"). Enter on a candidate selects it; then R to
+   "Recruit, button" and Enter twice. (Moving the new army is not supported
+   yet.)
 6. Your armies: press L until "Lords & Heroes, tab", Enter. Each lord is one
    item: "Tyrion, list item, Legendary Lord, 116 soldiers, faction leader,
    rank 1". Enter selects him (the camera goes to him) and reads his army:

@@ -28,7 +28,7 @@ local initial,owner,expiry,mode=read_flag()
 local diagnostic=initial~=nil
 if not diagnostic then owner,expiry,mode='player','9999-12-31T23:59:59Z','player' end
 local session='campaign:' .. owner .. ':' .. tostring({})
-local version='0.6.58'
+local version='0.6.59'
 local sequence,generation,bytes,run,attempts=0,1,0,0,0
 local phase,result,last_request='initialising','ready',''
 local queue,head,visited,page,entries,index={},1,0,0,{},0
@@ -241,20 +241,28 @@ local function role_of(id,parent)
     return (id:sub(1,7)=='button_' and 'button') or (id:sub(1,4)=='tab_' and 'tab')
         or (id:sub(1,7)=='toggle_' and 'toggle button') or (id=='3D_advisor_portrait' and 'button')
         or (id:sub(1,5)=='sort_' and 'button')
-        or ((id=='dy_title' or id=='tx_title' or id=='tx_list_title' or id=='dy_province') and 'heading')
-        or ((id=='dy_txt' and (parent=='header' or parent=='button_focus')) and 'heading') or nil
+        or ((id=='dy_title' or id=='tx_title' or id=='tx_list_title' or id=='dy_province' or id=='header_frame') and 'heading')
+        or ((id=='dy_txt' and (parent=='header' or parent=='button_focus')) and 'heading')
+        or (parent=='title_plaque' and 'heading') or nil
 end
 local function entry_role(entry) return entry.role or role_of(entry.id) end
 -- Stable across panels opening (child indices shift when a root panel is added).
 local function stable_key(entry) return (entry.idpath or entry.key) .. '|' .. entry.name end
 -- Province rows and buildings are read as one item each: their child elements
 -- (name, income, cost, lock, units) are folded into it.
+local stat_holders={wealth_holder=true,public_order=true,pop_surplus=true,tx_turns=true,upkeep_cost=true}
 local function composite_kind(id,ids,depth)
     if type(id)~='string' then return nil end
     if id:sub(1,10)=='row_entry_' then return 'row' end
     if id:sub(1,18)=='general_candidate_' then return 'candidate' end
     if id:sub(1,14)=='character_row_' then return 'character' end
     if id:match('^LandUnit %d+$') or id:match('^NavalUnit %d+$') then return 'unit' end
+    -- Settlement panel figures: a label, a number and an icon are one item
+    -- ("Income, 520", "Public order, 0 (-1), Neutral").
+    if stat_holders[id] then return 'stat' end
+    -- Unit details: "Armour, 80, Shielded" (name, number and modifier icons).
+    if ids[depth-1]=='dynamic_stats' and id:match('^stat%d+$') then return 'stat' end
+    if id:sub(1,9)=='checkbox_' then return 'checkbox' end
     local parent,grand=ids[depth-1],ids[depth-2]
     if parent=='list_box' then
         -- Lord types in the Recruit Lord panel (Legendary Lords, Prince, Princess).
@@ -295,6 +303,17 @@ local function contribute(entry,id,name,tip_name,state,parent)
         elseif id=='experience' and type(state)=='string' and state:match('^%d+$') and state~='0' then add_state(entry,'rank ' .. state) end
         return
     end
+    if entry.kind=='stat' then
+        if (id:sub(1,3)=='tx_' or id=='stat_name') and name~='' then entry.name=(name:gsub('%s*:$',''))
+        elseif parent=='mod_icon_list' and tip_name~='' then add_state(entry,tip_name)
+        elseif (id:sub(1,3)=='dy_' or id=='total') and name~='' then entry.value=name
+        elseif id=='icon_public_order' and tip_name~='' then add_state(entry,tip_name) end
+        return
+    elseif entry.kind=='checkbox' then
+        -- "Tax Province, check box, checked, …, Taxing a province will provide …"
+        if id=='label_txt' and name~='' then entry.name=name; entry.description=tip_name end
+        return
+    end
     local person=entry.kind=='candidate' or entry.kind=='lordtype'
     if person then
         if (id=='dy_name' or (id=='label' and entry.kind=='lordtype')) and name~='' then entry.name=name
@@ -324,6 +343,33 @@ end
 -- Reading order: each settlement's buildings right after its name; the
 -- minimap's settlement icons after everything else.
 local function arrange_entries()
+    -- Document order, as NVDA reads a page: each panel's title, text and
+    -- buttons together (the scan itself is breadth-first).
+    -- A title is read before the elements beside it ("Your Provinces" sits
+    -- after its sort buttons and rows in the tree).
+    local function order_path(entry)
+        local path=entry.path or {}
+        if entry_role(entry)=='heading' and entry.id~='dy_province' and #path>0 then
+            local level=#path
+            local parent=entry.ids and entry.ids[#path-1]
+            -- "Recruit Lord" sits in a title plaque after the panel's list.
+            if type(parent)=='string' and level>1 and (parent:match('title') or parent:match('plaque')) then level=level-1 end
+            local moved={}
+            for depth=1,level-1 do moved[depth]=path[depth] end
+            moved[level]=-1
+            return moved
+        end
+        return path
+    end
+    for position,entry in ipairs(entries) do entry.scan_order=position; entry.order_path=order_path(entry) end
+    table.sort(entries,function(a,b)
+        local pa,pb=a.order_path,b.order_path
+        for depth=1,math.min(#pa,#pb) do
+            if pa[depth]~=pb[depth] then return pa[depth]<pb[depth] end
+        end
+        if #pa~=#pb then return #pa<#pb end
+        return a.scan_order<b.scan_order
+    end)
     -- Group members (a settlement's buildings, an army's unit cards) are read
     -- right after their heading, wherever they sit in the tree.
     local function member(entry) return entry.settlement or entry.group_key end
@@ -387,7 +433,17 @@ local function verify_reader()
 end
 -- Labels for HUD elements whose own text is only a value or whose tooltip is
 -- a warning rather than a name (from the 0.6.32 live capture).
-local value_labels={dy_income='Income',counter='Unresolved events'}
+local value_labels={dy_income='Income',counter='Unresolved events',dy_growth='Growth'}
+-- "Growth:" sits beside its value (dy_growth, read as "Growth, 0/600 (+20)").
+local dropped_labels={tx_growth=true,hit_points=true}
+local help_hint='Left-click to open Help pages.'
+local religion_names={untainted='Untainted',chaos='Chaos corruption',undeath='Vampiric corruption',skaven='Skaven corruption'}
+local function religion_label(id)
+    local key=id:match('religion_(.+)$') or id
+    if religion_names[key] then return religion_names[key] end
+    local words=key:gsub('_',' ')
+    return words:sub(1,1):upper() .. words:sub(2)
+end
 local name_labels={button_end_turn='End turn',button_skip='Skip',['3D_advisor_portrait']='Repeat advice',button_raise='Recruit'}
 local punctuation={['(']=true,[')']=true}
 -- Buttons with no text or tooltip (check marks, close buttons) still need a
@@ -452,7 +508,7 @@ local function page_read()
                 local tip_name,tip_description=tooltip,''
                 for position=1,#tooltip-1 do
                     if string.byte(tooltip,position)==124 and string.byte(tooltip,position+1)==124 then
-                        tip_name=clean(string.sub(tooltip,1,position-1)); tip_description=clean(string.sub(tooltip,position+2)); break
+                        tip_name=clean(string.sub(tooltip,1,position-1)); tip_description=clean((string.sub(tooltip,position+2):gsub('%s*||%s*','. '):gsub('%.%.%s','. '))); break
                     end
                 end
                 local depth=#item.path
@@ -479,6 +535,13 @@ local function page_read()
                             entry.description=table.concat(reason,'. ')
                         end
                     elseif kind=='character' then entry.role='list item'; entry.name=''
+                    elseif kind=='stat' then
+                        entry.read_only=true; entry.name=name~='' and (name:gsub('%s*:$','')) or tip_name
+                        if id:match('^stat%d+$') then entry.name=''; entry.description=tip_name end
+                    elseif kind=='checkbox' then
+                        -- Read only for now: toggling (taxes) is not unblocked.
+                        entry.role='check box'; entry.name=tip_name; entry.read_only=true
+                        add_state(entry,(state=='selected' or state=='selected_hover' or state=='selected_down') and 'checked' or 'not checked')
                     elseif kind=='unit' then
                         entry.role='list item'; entry.name=tip_name; entry.read_only=true; entry.group_key='army'
                     elseif kind=='lordtype' then
@@ -496,20 +559,40 @@ local function page_read()
                     entries[#entries+1]=entry; group=entry
                 end
                 local entry_name,value,description=name,'',''
+                local created_button
                 if group then entry_name=''
+                elseif name~='' and tip_name~='' and tip_name~=name and tip_description=='' and (#tip_name>48 or tip_name:sub(-1)=='.') then
+                    -- A sentence tooltip explains the text: "Armoured & Shielded, …, Armoured units can block …".
+                    entry_name,description=name,tip_name
                 elseif name~='' and tip_name~='' and tip_name~=name then entry_name,value,description=tip_name,name,tip_description
                 elseif name=='' then entry_name,description=tip_name,tip_description end
+                if not group and name~='' and role_of(id,parent)=='heading' then
+                    -- A panel title keeps its own text; the tooltip explains it ("Growth, heading, …, Once growth reaches …").
+                    entry_name,value,description=name,'',(tip_name~=name and tip_name or '')
+                end
+                if not group and parent=='corruption_docker' and name~='' then
+                    entry_name,value=religion_label(id),name
+                end
+                if dropped_labels[id] then entry_name='' end
+                if description==help_hint then description='' end
                 if id=='dy_province' and name~='' then
                     -- A settlement's name above its building slots.
                     entry_name,value,description=name,'',''
                     settlement_names[strip_levels(item.label,2)]=name
                 end
                 -- Containers named button_* sit in NewState; only clickable states count.
-                if entry_name=='' and not group and (state=='active' or state=='hover' or state=='selected' or state=='down') then entry_name=button_name(id,item.ids) end
+                local derived=false
+                if entry_name=='' and not group and (state=='active' or state=='hover' or state=='selected' or state=='down') then entry_name=button_name(id,item.ids); derived=entry_name~='' end
+                -- A button's own label element ("Recruit" inside Recruit) is not a second item.
+                local owner=item.owner
+                if owner and not group and parent~='button_focus' and (id=='button_txt' or id=='dy_txt') then
+                    if name~='' and owner.derived then owner.name=name; owner.derived=false end
+                    entry_name=''
+                end
                 if group then -- folded into the row/building above
                 elseif name_labels[id] then
                     -- The tooltip is a warning ("Dismiss all advice ..."): keep it as the description.
-                    if entry_name~=name_labels[id] then description=tooltip end
+                    if entry_name~=name_labels[id] then description=tip_description~='' and (tip_name .. '. ' .. tip_description) or tooltip end
                     entry_name,value=name_labels[id],(name~='' and name~=tooltip) and name or ''
                 elseif value_labels[id] and value=='' and name~='' then entry_name,value=value_labels[id],name end
                 local previous=entries[#entries]
@@ -524,7 +607,10 @@ local function page_read()
                         name=entry_name,value=value,description=description,id=id,path=item.path,ids=item.ids,
                         role=role_of(id,parent),idpath=table.concat(item.ids,'/') .. '/' .. id,
                         settlement_heading=(id=='dy_province') and strip_levels(item.label,2) or nil,
-                        group_heading=(id=='dy_txt' and parent=='button_focus' and ('/' .. table.concat(item.ids,'/')):match('/units_panel/')) and 'army' or nil} end
+                        group_heading=(id=='dy_txt' and parent=='button_focus' and ('/' .. table.concat(item.ids,'/')):match('/units_panel/')) and 'army' or nil}
+                        local made=entries[#entries]
+                        if made.role=='button' then made.derived=derived; created_button=made end
+                    end
                 end
                 if #item.path>=16 and count>0 then limit('depth-budget',item.label,#item.path)
                 else
@@ -535,7 +621,7 @@ local function page_read()
                         for depth,value in ipairs(item.path) do path[depth]=value;ids[depth]=item.ids[depth] end
                         if #path>0 then ids[#path]=id end
                         path[#path+1]=child_index
-                        queue[#queue+1]={path=path,ids=ids,label=item.label .. '.child' .. child_index,group=group}
+                        queue[#queue+1]={path=path,ids=ids,label=item.label .. '.child' .. child_index,group=group,owner=created_button}
                     end
                 end
             end
@@ -589,6 +675,15 @@ local function page_read()
             end
         else
             speak('Campaign map, ' .. #entries .. ' items.' .. (limited and ' Some text could not be read.' or ''))
+            -- Like NVDA in a window with a dialog open: start at the title of the
+            -- top-most panel (drawn last, so the highest root child), else the first item.
+            local base_layer=entries[1] and entries[1].path and entries[1].path[1] or 0
+            local best,best_layer
+            for position,entry in ipairs(entries) do
+                local layer=entry.path and entry.path[1] or 0
+                if entry_role(entry)=='heading' and layer>base_layer and (not best_layer or layer>best_layer) then best,best_layer=position,layer end
+            end
+            index=best and best-1 or 0
         end
         browse(1,false)
     end

@@ -230,3 +230,50 @@ registered once, never from a callback).
 Still possible but not seen since: if it ever happens, Shift+F3 (physical key)
 restarts the reader; the friend's guide asks him to report it.
 
+## 0.6.59: reading order and figures (accepted 0.6.59)
+
+Found with a new offline replay, `tests/replay_capture.lua <discovery.jsonl>
+[run] [next-run]`: it rebuilds a recorded screen from the discovery log, runs
+the reader on it (stock Lua, file access stubbed) and prints every item as
+spoken; with a second run it swaps the screen and prints what the re-read
+announces. Every capture from 0.6.48–0.6.58 was replayed.
+
+- **Document order.** Items are read in tree order (each panel's title, text
+  and buttons together) instead of breadth-first. A title is read before the
+  elements beside it ("Your Provinces" sits after its rows in the tree;
+  "Recruit Lord" sits in a title plaque after its list). Group rules
+  (buildings after their settlement, units after the army heading, minimap
+  last) still apply.
+- **Arrival** starts at the title of the top-most open panel ("Campaign map,
+  53 items." "How They Play, heading, 44 of 53"), else at the first item.
+- **Province figures** are one item each: "Growth, 0/600 (+20)", "Turns until
+  surplus point, 30", "Population Surplus, 1", "Income, 520", "Public order,
+  0 (-1), Neutral", "Untainted, 100%". Section titles (`header_frame`) are
+  headings with their explanation as the description; "Left-click to open
+  Help pages." is dropped.
+- **Tax Province** is "check box, checked/not checked", read only (toggling
+  taxes is not unblocked).
+- **Unit stats were mispaired** (0.6.49 live said "Leadership, 36" where the
+  screen showed 80, because a bare number joined the item before it). Each
+  stat (`dynamic_stats/statN`: name, number, modifier icons) is now one item:
+  "Armour, 80, Shielded, …, How resistant a unit is …". Upkeep reads "Upkeep, 213".
+- A button's own label element is not a second item (no more "Txt, button" /
+  "Recruit" after "Recruit, button"); "Raise army||…" descriptions read
+  "Raise army. …". A sentence tooltip on a text item is its description
+  ("Armoured & Shielded, …, Armoured units can block …").
+- Harness: 53 campaign scenarios (+ the above with IDs from the captures).
+
+Live (0.6.59, `work/live-0.6.59-order`, everything after Start Campaign by
+keys): arrival "How They Play, heading, 44 of 53" → Down reads Eataine, the
+body, Accept. Provinces → "Provinces, heading" → "Your Provinces, heading",
+three sort buttons, "Straits of Lothern, list item, …". Enter → "Straits of
+Lothern, heading". G → the figures above, exactly as listed. Recruit Lord →
+"Recruit Lord, heading, 6 of 118", "Recruit, button"; stats matched the
+screenshot (Armour 80, Leadership 80, Speed 36, Melee Attack 60, Melee Defence
+60, Weapon Strength 400, Charge Bonus 30). Lords & Heroes → "Lords & Heroes,
+heading" → Tyrion → "Tyrion, heading", units. No orders, no turn ended, no saves.
+
+Still open: "Unresolved events, 1" sits apart from "You have an unresolved
+event!"; long names on some HUD buttons (Sword of Khaine); physical keys
+unverified.
+
