@@ -24,7 +24,7 @@ left intact. Paths like `work/live-0.6.17-lord-discovery` in the docs resolve he
 ## Current state — read before working
 
 - `docs/AUTOMATION_SESSION.md` — full session history and current stop point.
-- `docs/FIRST_TRIAL_0_6_60.md` — latest: first outside trial fixes (main menu on other PCs, Continue Campaign, launch without TW Mod Manager, HUD reading on by default; accepted 0.6.60).
+- `docs/FIRST_TRIAL_0_6_60.md` — latest: first outside trial fixes (main menu on other PCs, Continue Campaign, launch without TW Mod Manager, HUD reading on by default; accepted 0.6.60) and 0.6.61: "ready" waits for the menu after the intro movies.
 - `docs/SETTLEMENTS_0_6_43.md` — provinces, settlement panel, building and recruiting by keyboard, intro check box, player guide, armies read, silent-reader fix, document reading order and province/unit figures (accepted 0.6.59).
 - `docs/CAMPAIGN_BUTTONS_0_6_39.md` — HUD buttons, End Turn, first turn by keyboard (0.6.38–0.6.42).
 - `docs/CAMPAIGN_DISCOVERY_0_6_31.md` — owner-requested stop; candidate offline checks passed, live gates pending.
@@ -96,7 +96,8 @@ The Codex app may work in this repo in parallel; check `git status` first.
 `movies/startup_movie_01-03.ca_vp8`, built by `Build-SkipIntro.ps1`). The game
 folder and TWMM's profile are untouched; `-WithIntro` plays them. Without the
 skip the endpoint reports ready while the movies are still playing (menu ~8 s
-later), so always confirm the main menu on screen. `Watch-Startup.ps1` records
+later), so always confirm the main menu on screen. The spoken "ready" waits
+for the menu (since 0.6.61: the key timer does not tick during movies). `Watch-Startup.ps1` records
 startup screenshots.
 `Flyover-Run.ps1` (one timed campaign start + screenshot) and `Zoom-Stress.ps1` (repeated
 camera jumps, checks the reader keeps ticking) test the silent-reader fix;
@@ -180,7 +181,7 @@ authorized scope.
 - Verify each major transition before continuing.
 - Never repeatedly click a control without checking the resulting state.
 - If the same launch step fails twice, investigate rather than retrying blindly.
-- Preserve the last known working build (0.6.60; before it 0.6.59) as the rollback.
+- Preserve the last known working build (0.6.61; before it 0.6.60) as the rollback.
 - Do not delete game saves or unrelated configuration files.
 - Distinguish launcher failures, mod-loading failures, game crashes, and
   accessibility integration failures.

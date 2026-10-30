@@ -1209,8 +1209,38 @@ local function no_engine_words(text)
     return not text:find('read only',1,true) and not text:find(', active',1,true) and not text:find('NewState',1,true)
         and not text:find('Lord choice:',1,true) and not text:find('campaign choice',1,true)
 end
+-- 0.6.61: "ready" is spoken once the key timer ticks steadily (the intro
+-- movies stop the game's timers), not at load.
+local ready_text='Warhammer accessibility ready. Arrow keys move, Enter activates.'
+local function ready_count()
+    local n,from=0,1
+    local bridge=contents('bridge.jsonl')
+    while true do local a,b=bridge:find(ready_text,from,true); if not a then return n end; n=n+1; from=b+1 end
+end
+local function ticks(count) for n=1,count do assert(keys_poll,'Key timer active'); keys_poll() end end
 start()
-assert(contents('bridge.jsonl'):find('Warhammer accessibility ready. Arrow keys move, Enter activates.',1,true),'Short startup message')
+assert(ready_count()==0,'Not spoken at load, while movies may play')
+ticks(14); assert(ready_count()==0,'Not before 15 steady ticks')
+ticks(1); assert(ready_count()==1,'Short startup message after steady ticks')
+ticks(40); assert(ready_count()==1,'Spoken once')
+assert(contents('native-ui-graphics-preview.log'):find('startup.ready	string	ticks=15',1,true))
+-- A pause of two seconds or more (a movie between ticks) starts the count again.
+start()
+ticks(10); now=now+3; ticks(14); assert(ready_count()==0,'Count restarts after a pause')
+ticks(1); assert(ready_count()==1,'Spoken after 15 ticks since the pause')
+-- Ticks a second apart are steady (the clock has whole seconds).
+start()
+for n=1,15 do now=now+1; ticks(1) end; assert(ready_count()==1,'One-second steps do not restart the count')
+-- A clock that cannot be read falls back to counting ticks.
+start()
+local saved_date=os.date; os.date=function() error('fixture clock failure') end
+ticks(15); os.date=saved_date; assert(ready_count()==1,'Unreadable clock still announces')
+-- Without the key timer (no frontend key channel) it is spoken at load, as before.
+start(); assert(ready_count()==0)
+local saved_timer=real_timer; real_timer=nil; dofile('diagnostics/graphics_preview.lua'); real_timer=saved_timer
+assert(ready_count()==1,'Spoken at load without the key timer')
+start()
+ticks(15)
 key('script_F2'); assert(spoken()=='Main menu. New Campaign, button, 1 of 22',spoken())
 key('script_F2'); assert(spoken()=='Continue Campaign, button, unavailable, 2 of 22',spoken())
 key('script_F3'); assert(spoken()=='New Campaign, button, 1 of 22','Screen name is spoken once')

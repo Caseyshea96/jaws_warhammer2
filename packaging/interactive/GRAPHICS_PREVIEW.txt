@@ -27,7 +27,8 @@ EACH TIME YOU PLAY
    below; keep it running. It tests speech, then starts the game itself
    with only the accessibility mod: no TW Mod Manager window. You hear
    "Starting Warhammer with the accessibility mod." Other mods are not
-   loaded in this mode. The intro movies play first (Escape skips them).
+   loaded in this mode. The intro movies play first, about two minutes
+   (Escape skips them); the menu is not read until they end.
    When the main menu is ready you hear
    "Warhammer accessibility ready. Arrow keys move, Enter activates."
    If Steam was not running, the game opens through Steam instead: in TW

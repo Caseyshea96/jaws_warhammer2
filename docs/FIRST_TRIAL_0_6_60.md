@@ -80,10 +80,44 @@ window; main menu after ~170 s (intro movies). Evidence:
 
 ## Still open
 
-- "Warhammer accessibility ready" is spoken while the intro movies still play
-  (~2 minutes before the menu is visible).
+- ~~"Warhammer accessibility ready" is spoken while the intro movies still play.~~
+  Fixed in 0.6.61 (below).
 - The friend's PC is untested: these checks are tolerant by design, but his
   menu's IDs/paths have not been seen. If anything fails, his
   `native-ui-graphics-preview.log` shows the reason (`activation.player_target`).
 - Steam not running falls back to TW Mod Manager.
 - Physical keys (Shift+F2/F3, Escape) unverified by automation.
+
+## 0.6.61: "ready" waits for the main menu
+
+The startup message was spoken when the script loaded, during the copyright
+splash, up to three minutes before the menu (the long intro cinematic plays on
+some launches and not others).
+
+Probe (`work/live-0.6.61-startup`, `-startup-2`): during the movies the menu
+tree is already built and reports itself visible, so the screen cannot tell
+them apart. The key timer, though, does not tick at all while a movie plays
+(none for the whole cinematic) and ticks about ten times a second on the menu;
+the first ticks came between the last movie frame and the menu.
+
+Change (`announce_ready` / `ready_tick` in `diagnostics/graphics_preview.lua`):
+the message is spoken after 15 key-timer ticks with no gap of two seconds or
+more between them (about 1.5 s of menu). A pause restarts the count; a key
+press before then counts as ready (no late message); with no key timer it is
+spoken at load, as before. Logged as `startup.ready`. Harness: 388 frontend
+scenarios (+ not at load, 15 ticks, pause restarts, one-second steps, clock
+failure, no timer).
+
+Live, player path (companion started with the desktop shortcut's arguments,
+NVDA running, intro movies on; `work/live-0.6.61-ready`, `-ready-2`,
+speech-trace.jsonl):
+
+- Short intro: logo movie on screen 16:32:28, menu by 16:32:32, "ready"
+  16:32:32.8. Down, Down: "Main menu. New Campaign, button, 1 of 22",
+  "Continue Campaign, button, 2 of 22".
+- Long cinematic: cinematic on screen 16:36:28, menu fading in 16:36:33,
+  "ready" 16:36:34.8 (three minutes after launch). Down: "Main menu. New
+  Campaign, button, 1 of 22".
+
+Not changed: the automation endpoint still reports ready during the movies
+(test scripts must still confirm the menu on screen).

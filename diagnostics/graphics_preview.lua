@@ -345,7 +345,7 @@ for _, base in ipairs(bases) do
     local path = base .. 'native-ui-graphics-preview.log'
     local f = io.open(path, 'w')
     if f then
-        local header = 'WH2 native UI diagnostic 0.6.60-nvda-automation-preview\n'
+        local header = 'WH2 native UI diagnostic 0.6.61-nvda-automation-preview\n'
         f:write(header); f:close(); log_bytes = #header + 1
         log_path = path; bridge_path = base .. (base == '' and 'jaws_access.jsonl' or 'bridge.jsonl')
         local bridge = io.open(bridge_path, 'w'); if bridge then bridge:close() end
@@ -2022,7 +2022,7 @@ local function publish_status()
     if #label > 800 then label = label:sub(1,800):gsub('[\192-\255][\128-\191]*$','') end
     local deadline='0'
     if pending then deadline=decimal_add(unix_value(),math.max(0,pending.deadline-clock_value())) end
-    local values = {'WH2STATUS1','0.6.60-nvda-automation-preview',session,tostring(generation),
+    local values = {'WH2STATUS1','0.6.61-nvda-automation-preview',session,tostring(generation),
         tostring(interaction_revision),tostring(auto_seq),auto_result,screen_kind,
         item and item.key or '-',label,tostring(#controls),pending and pending.target or '-',
         deadline,core:is_ui_created() and '1' or '0',
@@ -2183,7 +2183,9 @@ local function publish_reader_state(force)
     if not f then return end
     f:write(line); f:close(); keys_state = line
 end
+local ready_spoken = false
 local function key_action(action)
+    ready_spoken = true
     if action == 'next' then navigate('script_F2', 'keys')
     elseif action == 'previous' then navigate('script_F3', 'keys')
     elseif action == 'first' then nav_target = 'first'; navigate('script_F2', 'keys')
@@ -2197,8 +2199,32 @@ local function key_action(action)
     else plain_log('keys.rejected', 'action') end
 end
 local poll_key_events
+-- 0.6.61: "ready" waits for the main menu. The intro movies stop the game's
+-- timers (no ticks for the whole cinematic, seen live), while the menu ticks
+-- about ten times a second. So the message is spoken after 15 ticks with no
+-- gap of two seconds or more between them; a key press before then counts as
+-- ready. Without the key timer it is spoken at load, as before.
+local ready_ticks, ready_last = 0, nil
+local function announce_ready()
+    if ready_spoken then return end
+    ready_spoken = true
+    plain_log('startup.ready', 'ticks=' .. ready_ticks)
+    speak('Warhammer accessibility ready. Arrow keys move, Enter activates.')
+end
+local function ready_tick()
+    if ready_spoken then return end
+    local ok, clock = pcall(function() local v = os.date('!*t'); return v end)
+    if ok and type(clock) == 'table' and type(clock.hour) == 'number' and type(clock.min) == 'number' and type(clock.sec) == 'number' then
+        local now = clock.hour * 3600 + clock.min * 60 + clock.sec
+        if ready_last and (now - ready_last > 1 or now < ready_last) then ready_ticks = 0 end
+        ready_last = now
+    end
+    ready_ticks = ready_ticks + 1
+    if ready_ticks >= 15 then announce_ready() end
+end
 local function poll_keys()
     keys_ticks = keys_ticks + 1
+    ready_tick()
     poll_key_events()
     publish_reader_state(false) -- after the events, so screen changes show at once
 end
@@ -2272,5 +2298,5 @@ core:add_listener('graphics_preview_automation_init','FrontendScreenTransition',
     function() if start_automation then start_automation() end; start_keys_guarded() end,true)
 start_automation()
 start_keys_guarded()
-speak('Warhammer accessibility ready. Arrow keys move, Enter activates.')
+if not keys_running then announce_ready() end
 
